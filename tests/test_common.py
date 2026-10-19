@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""Tests for the shared helpers in pycoQC.common."""
+
+import math
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from pycoQC.common import mean_qscore, start_time_to_elapsed_seconds
+from conftest import reference_mean_qscore
+
+
+class TestMeanQscore:
+
+    def test_matches_reference_for_every_read(self, reads):
+        """The table lookup must agree with a direct error-probability average."""
+        for _, _, qual in reads:
+            assert mean_qscore(qual, phred33=True) == pytest.approx(
+                reference_mean_qscore(qual), abs=1e-9)
+
+    def test_accepts_bytes_and_str_alike(self):
+        qual = "IIIII$$###"
+        assert mean_qscore(qual, phred33=True) == pytest.approx(
+            mean_qscore(qual.encode("ascii"), phred33=True))
+
+    def test_raw_phred_values_match_phred33_string(self):
+        """Raw scores and the Phred+33 encoding of them must agree."""
+        scores = [2, 7, 14, 30, 40]
+        encoded = "".join(chr(q + 33) for q in scores)
+        assert mean_qscore(bytes(scores)) == pytest.approx(
+            mean_qscore(encoded, phred33=True))
+
+    def test_uniform_quality_returns_that_quality(self):
+        """Averaging equal scores cannot drift away from the score itself."""
+        for q in (2, 10, 20, 40):
+            assert mean_qscore(bytes([q] * 50)) == pytest.approx(q)
+
+    def test_dominated_by_low_quality_bases(self):
+        """A log-scale average must sit below the arithmetic mean."""
+        scores = [40] * 99 + [2]
+        got = mean_qscore(bytes(scores))
+        assert got < np.mean(scores)
+
+    @pytest.mark.parametrize("empty", ["", b"", None, []])
+    def test_missing_qualities_are_zero(self, empty):
+        """pysam hands out None when a record carries no qualities."""
+        assert mean_qscore(empty) == 0.0
+
+
+class TestStartTimeToElapsedSeconds:
+
+    def test_counts_seconds_from_the_first_read(self):
+        times = pd.Series([
+            "2022-06-27T23:00:00Z",
+            "2022-06-27T23:00:30Z",
+            "2022-06-27T23:02:00Z"])
+        assert list(start_time_to_elapsed_seconds(times)) == [0, 30, 120]
+
+    def test_unordered_input_is_relative_to_the_minimum(self):
+        times = pd.Series([
+            "2022-06-27T23:02:00Z",
+            "2022-06-27T23:00:00Z",
+            "2022-06-27T23:00:30Z"])
+        assert list(start_time_to_elapsed_seconds(times)) == [120, 0, 30]
+
+    def test_integer_dtype_when_nothing_is_missing(self):
+        times = pd.Series(["2022-06-27T23:00:00Z", "2022-06-27T23:00:30Z"])
+        assert start_time_to_elapsed_seconds(times).dtype == np.dtype("int64")
+
+    def test_missing_times_fall_back_to_float(self):
+        """A NaT cannot be cast to int, so the column stays floating point."""
+        times = pd.Series(["2022-06-27T23:00:00Z", None])
+        result = start_time_to_elapsed_seconds(times)
+        assert result.dtype == np.dtype("float64")
+        assert result.iloc[0] == 0.0
+        assert math.isnan(result.iloc[1])

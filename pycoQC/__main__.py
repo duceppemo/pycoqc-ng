@@ -398,3 +398,9 @@ def main_Barcode_split(args=None):
         min_barcode_percent=args.min_barcode_percent,
         verbose=args.verbose,
         quiet=args.quiet)
+
+
+#~~~~~~~~~~~~~~MODULE ENTRY POINT~~~~~~~~~~~~~~#
+if __name__ == "__main__":
+    # Makes `python -m pycoQC ...` equivalent to the pycoQC console script.
+    main_pycoQC()

@@ -102,7 +102,6 @@ ENV/
 .mypy_cache/
 
 # data
-tests/
 docs/*/large_data/
 
 # Cython generated sources (regenerated from .pyx at build time)

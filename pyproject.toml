@@ -68,3 +68,11 @@ version = {attr = "pycoQC.__version__"}
 
 [tool.setuptools.package-data]
 pycoQC = ["templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "error::DeprecationWarning:pycoQC.*",
+]

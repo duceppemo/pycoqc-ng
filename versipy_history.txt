@@ -1,9 +1,0 @@
-2020-12-16 15:55:07.158731	0.0.0	Initialise versipy history
-2020-12-16 16:35:49.487662	2.5.1.dev1	Versipy auto bump-up
-2020-12-16 16:37:21.197197	2.5.1.dev2	Versipy auto bump-up
-2020-12-16 16:38:01.948310	2.5.1.dev3	Versipy auto bump-up
-2020-12-16 16:40:09.668703	2.5.1.dev4	Versipy auto bump-up
-2020-12-16 16:41:15.013385	2.5.1.dev5	Versipy auto bump-up
-2020-12-16 16:50:47.571875	2.5.1.dev6	Versipyify package and expose skip_coverage_plot option to CLI
-2020-12-16 16:58:52.524915	2.5.2	Versipyify package and expose skip_coverage_plot option to CLI
-2023-08-29 23:27:32:325642  3.0.0   Added fastq, bam and pod5 support. Added %GC graphs.

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (py${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python-version: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,notebook]"
+
+      - name: Run test suite
+        run: python -m pytest -v
+
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Check metadata
+        run: python -m twine check dist/*
+
+      - name: Verify a clean install from the sdist works outside the repo
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.tar.gz
+          cd /tmp
+          /tmp/venv/bin/pycoQC --version
+          /tmp/venv/bin/pycoQC --default_config > /dev/null
+          for cmd in Fast5_to_seq_summary Fastq_to_seq_summary \
+                     Pod5_to_seq_summary Bam_to_seq_summary Barcode_split; do
+            /tmp/venv/bin/$cmd --help > /dev/null
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
