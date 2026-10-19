@@ -1,0 +1,23 @@
+# https://docs.codecov.com/docs/codecovyml-reference
+coverage:
+  status:
+    project:
+      default:
+        # Coverage is still being built up, so allow small dips rather than
+        # failing the check on noise.
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # New code should come with tests.
+        target: 80%
+        threshold: 5%
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true
+
+ignore:
+  - "tests/**"
+  - "docs/**"
+  - "paper/**"

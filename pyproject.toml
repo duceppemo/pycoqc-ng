@@ -50,7 +50,7 @@ Issues = "https://github.com/duceppemo/pycoqc-ng/issues"
 
 [project.optional-dependencies]
 notebook = ["ipython"]
-dev = ["pytest>=7", "build", "pyflakes>=3"]
+dev = ["pytest>=7", "pytest-cov>=4", "build", "pyflakes>=3"]
 
 [project.scripts]
 pycoQC = "pycoQC.__main__:main_pycoQC"
@@ -78,4 +78,26 @@ pythonpath = ["tests"]
 addopts = "-ra"
 filterwarnings = [
     "error::DeprecationWarning:pycoQC.*",
+]
+
+[tool.coverage.run]
+source = ["pycoQC"]
+branch = true
+# The converters do their work in worker processes, so without these the
+# parsing code reads as uncovered even when the tests exercise it.
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+sigterm = true
+
+[tool.coverage.paths]
+# Collapse an installed copy onto the source tree, so coverage measured
+# against site-packages in CI maps back to these files.
+source = ["pycoQC", "*/site-packages/pycoQC"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
 ]
