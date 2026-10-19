@@ -38,6 +38,10 @@ logLevel_dict = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
 class FastqParser(object):
+
+    # A fastq record is four lines: header, sequence, separator, quality.
+    LINES_PER_READ = 4
+
     @staticmethod
     def make_chunks(file_handle, size):
         while True:
@@ -47,19 +51,41 @@ class FastqParser(object):
             yield chunk
 
     @staticmethod
-    def read_entry(entry, fastq_name, flag):
+    def open_fastq(fastq_fn):
+        """Open a fastq file, transparently handling gzip compression"""
+        if fastq_fn.endswith('.gz'):
+            return gzip.open(fastq_fn, "rt")
+        return open(fastq_fn, "r")
+
+    @staticmethod
+    def pass_fail_flag(fastq_fn):
+        """Basecallers write passing and failing reads to separate paths"""
+        return 'fail' if 'fail' in fastq_fn else 'pass'
+
+    @staticmethod
+    def read_entry(entry, flag):
+        """Parse a block of fastq lines into {read_id: fields}
+
+        Blocks are cut on read boundaries, so leftover lines mean the file
+        itself ended mid-record. That read is skipped, with a warning, rather
+        than silently dropped.
+        """
         my_dict = dict()
         lines = list()
         for line in entry:
             line = line.rstrip()
             lines.append(line)
-            if len(lines) == 4:
-                my_dict.update(FastqParser.single_fastq_entry_to_dict(lines, fastq_name, flag))
+            if len(lines) == FastqParser.LINES_PER_READ:
+                my_dict.update(FastqParser.single_fastq_entry_to_dict(lines, flag))
                 lines = list()
+        if lines:
+            logger.warning(
+                "Truncated fastq record at end of block: dropping {} trailing "
+                "line(s). The file may be incomplete.".format(len(lines)))
         return my_dict
 
     @staticmethod
-    def single_fastq_entry_to_dict(fastq_entry, fastq_name, flag):
+    def single_fastq_entry_to_dict(fastq_entry, flag):
         """
         Fields in fastq header from Guppy:
 
@@ -135,27 +161,6 @@ class FastqParser(object):
 
         return entry_dict
 
-    @staticmethod
-    def iterate_fastq_parallel(input_fastq, cpu):
-        # Fastq file name
-        fastq_name = os.path.basename(input_fastq).split('.')[0].split('_')[0]
-
-        # Flag
-        flag = 'pass'  # Default value
-        if 'fail' in input_fastq:
-            flag = 'fail'  # Check in path for the word "fail"
-
-        # Chunk fastq files and run chunks in parallel
-        fastq_dict = dict()
-        with gzip.open(input_fastq, "rt") if input_fastq.endswith('.gz') else open(input_fastq, "r") as f:
-            with mp.Pool(int(cpu)) as pool:
-                jobs = [pool.apply_async(FastqParser.read_entry, [chunk, fastq_name, flag])
-                        for chunk in FastqParser.make_chunks(f, 4000)]
-                for job in jobs:
-                    fastq_dict.update(job.get())  # Do the merge
-
-        return fastq_dict
-
 
 class Fastq_to_seq_summary():
     """
@@ -163,6 +168,12 @@ class Fastq_to_seq_summary():
     multiple fastq files. The script will attempt to extract all the required fields but will not
     raise an error if not found.
     """
+
+    # Number of reads handed to a worker at a time. Counting in reads rather
+    # than lines means a block can never end in the middle of a record, which
+    # would drop that read.
+    READS_PER_CHUNK = 1000
+
     
     def __init__(self,
                  fastq_dir: str,
@@ -220,8 +231,10 @@ class Fastq_to_seq_summary():
         self.include_path = include_path
         self.verbose_level = verbose_level
 
-        # Init Multiprocessing variables
-        in_q = mp.Queue(maxsize=1000)
+        # Init Multiprocessing variables. in_q carries blocks of fastq lines
+        # rather than file paths, so it is kept short to bound how much of a
+        # file is held in memory at once.
+        in_q = mp.Queue(maxsize=max(4, self.threads * 2))
         out_q = mp.Queue(maxsize=1000)
         error_q = mp.Queue()
         counter_q = mp.Queue()
@@ -253,16 +266,25 @@ class Fastq_to_seq_summary():
 
     def _list_fastq(self, in_q, error_q):
         """
-        Mono-threaded worker adding fastq files found in a directory tree recursively
-        to a feeder queue for the multiprocessing workers
+        Mono-threaded worker walking the fastq files found in a directory tree
+        recursively and feeding blocks of lines to the parsing workers
+
+        Blocks of lines are queued rather than whole file paths. Each worker
+        used to open a process pool of its own to parse one file, so the
+        process count was the thread count squared; queueing chunks spreads a
+        single file across all workers without that nesting.
         """
-        logger.debug("[READER] Start listing fastq files")
+        logger.debug("[READER] Start reading fastq files")
         try:
-            # Load an input queue with fastq file path
+            # Load an input queue with blocks of fastq lines
             my_ext = ['fq', 'fq.gz', 'fastq', 'fastq.gz']
             i = 0
             for fastq_fn in recursive_file_gen(dir=self.fastq_dir, ext=my_ext):
-                in_q.put(fastq_fn)
+                flag = FastqParser.pass_fail_flag(fastq_fn)
+                with FastqParser.open_fastq(fastq_fn) as fastq_fh:
+                    chunk_lines = self.READS_PER_CHUNK * FastqParser.LINES_PER_READ
+                    for chunk in FastqParser.make_chunks(fastq_fh, chunk_lines):
+                        in_q.put((chunk, fastq_fn, flag))
                 i += 1
                 if self.max_fastq and i >= self.max_fastq:
                     break
@@ -271,7 +293,7 @@ class Fastq_to_seq_summary():
             if i == 0:
                 raise pycoQCError("No valid fastq files found in indicated folder")
 
-            logger.debug("[READER] Add a total of {} files to input queue".format(i))
+            logger.debug("[READER] Read a total of {} files".format(i))
 
         # Manage exceptions and deal poison pills
         except Exception:
@@ -282,24 +304,21 @@ class Fastq_to_seq_summary():
 
     def _read_fastq(self, in_q, out_q, error_q, counter_q, worker_id):
         """
-        Multi-threaded workers in charge of parsing fastq file.
+        Multi-threaded workers in charge of parsing blocks of fastq lines.
         """
-        logger.debug("[WORKER_{:02}] Start processing fastq files".format(worker_id))
+        logger.debug("[WORKER_{:02}] Start parsing fastq chunks".format(worker_id))
         try:
             c = {"overall": Counter(), "fields_found": Counter(), "fields_not_found": Counter()}
 
-            # Find t zero
-
-            # Parse fastq file(s)
-            for fastq_fn in iter(in_q.get, None):
-                # Try to extract data from the fastq file
+            # Parse each block of lines handed over by the reader
+            for chunk, fastq_fn, flag in iter(in_q.get, None):
                 # Fetch required fields is available
                 """
                 "read_id", "run_id", "channel", "start_time",
                 "sequence_length_template", "mean_qscore_template", "gc_percent"
                 "calibration_strand_genome_template", "barcode_arrangement"
                 """
-                value_dict = FastqParser.iterate_fastq_parallel(fastq_fn, self.threads)  # Field value
+                value_dict = FastqParser.read_entry(chunk, flag)
 
                 for read_id, read_info_dict in value_dict.items():
                     # A fresh dict per read: the queue serialises entries in a
