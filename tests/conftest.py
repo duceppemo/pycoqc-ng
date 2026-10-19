@@ -197,3 +197,76 @@ def raw_fast5_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("fast5_raw")
     _write_basecalled_fast5(d / "batch0.fast5", basecalled=False)
     return d
+
+
+def _write_pod5(path, n_reads=25, seed=0, id_offset=0):
+    """A POD5 file written with the real pod5 writer, carrying MinKNOW-like
+    run metadata. POD5 holds raw signal only, so there are no basecalls."""
+    pod5 = pytest.importorskip("pod5")
+    import datetime
+    import uuid
+    import numpy as np
+
+    run_info = pod5.RunInfo(
+        acquisition_id="e2419f1214664b2b48a1f01eebf8dfa6f28fb57a",
+        acquisition_start_time=datetime.datetime(
+            2026, 3, 29, 15, 18, 10, tzinfo=datetime.timezone.utc),
+        adc_max=4095, adc_min=-4096,
+        context_tags={"sample_frequency": "5000"},
+        experiment_name="test_experiment",
+        flow_cell_id="FAW88668",
+        flow_cell_product_code="FLO-MIN114",
+        protocol_name="sequencing/sequencing_MIN114_DNA_e8_2_400K",
+        protocol_run_id=str(uuid.uuid4()),
+        protocol_start_time=datetime.datetime(
+            2026, 3, 29, 15, 0, 0, tzinfo=datetime.timezone.utc),
+        sample_id="test_sample",
+        sample_rate=5000,
+        sequencing_kit="sqk-nbd114-24",
+        sequencer_position="MN23126",
+        sequencer_position_type="MinION",
+        software="MinKNOW 23.04.5",
+        system_name="minit",
+        system_type="MinION Mk1C",
+        tracking_id={"device_id": "MN23126"},
+    )
+
+    rng = np.random.default_rng(seed)
+    with pod5.Writer(str(path)) as writer:
+        for i in range(n_reads):
+            writer.add_read(pod5.Read(
+                read_id=uuid.UUID(int=id_offset + i),
+                pore=pod5.Pore(channel=(i * 7) % 512 + 1, well=1,
+                               pore_type="not_set"),
+                calibration=pod5.Calibration(offset=-243.0, scale=0.1875),
+                read_number=i,
+                start_sample=i * 100000,
+                median_before=220.0,
+                end_reason=pod5.EndReason.from_reason_with_default_forced(
+                    pod5.EndReasonEnum.SIGNAL_POSITIVE),
+                run_info=run_info,
+                signal=rng.integers(-200, 2000, size=5000, dtype=np.int16),
+            ))
+    return path
+
+
+@pytest.fixture(scope="session")
+def pod5_dir(tmp_path_factory):
+    """A directory holding one POD5 file whose name carries no barcode."""
+    d = tmp_path_factory.mktemp("pod5")
+    _write_pod5(d / "reads.pod5")
+    return d
+
+
+@pytest.fixture(scope="session")
+def pod5_barcoded_dir(tmp_path_factory):
+    """POD5 files named the way MinKNOW writes them, with the pass or fail
+    state and the barcode in the file name."""
+    d = tmp_path_factory.mktemp("pod5_barcoded")
+    _write_pod5(d / "FAW88668_pass_barcode06_1ec22c6e_0.pod5",
+                n_reads=10, id_offset=0)
+    _write_pod5(d / "FAW88668_fail_barcode11_1ec22c6e_1.pod5",
+                n_reads=10, seed=1, id_offset=1000)
+    _write_pod5(d / "FAW88668_pass_unclassified_1ec22c6e_2.pod5",
+                n_reads=10, seed=2, id_offset=2000)
+    return d
