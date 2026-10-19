@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml"><img src="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/duceppemo/pycoqc-ng"><img src="https://codecov.io/gh/duceppemo/pycoqc-ng/branch/main/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://codecov.io/gh/duceppemo/pycoqc-ng"><img src="https://codecov.io/gh/duceppemo/pycoqc-ng/graph/badge.svg" alt="Coverage"></a>
   <a href="https://github.com/duceppemo/pycoqc-ng/releases/latest"><img src="https://img.shields.io/github/v/release/duceppemo/pycoqc-ng?label=release&cacheSeconds=3600" alt="Latest release"></a>
   <a href="https://anaconda.org/bioconda/pycoqc-ng"><img src="https://img.shields.io/conda/vn/bioconda/pycoqc-ng?label=bioconda" alt="Bioconda"></a>
   <a href="https://pypi.org/project/pycoqc-ng/"><img src="https://img.shields.io/pypi/v/pycoqc-ng?label=pypi" alt="PyPI"></a>
