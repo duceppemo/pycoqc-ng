@@ -37,6 +37,7 @@ def pycoQC(
         config_file: str = "",
         template_file: str = "",
         json_outfile: str = "",
+        pdf_outfile: str = "",
         skip_coverage_plot: bool = False,
         verbose: bool = False,
         quiet: bool = False):
@@ -80,6 +81,10 @@ def pycoQC(
         Jinja2 html template for the html report
     * json_outfile
         Path to an output json file report
+    * pdf_outfile
+        Path to an output pdf file report. Each plot is rendered once as a
+        static image, giving a far smaller file than the html report at the
+        cost of the interactivity. Needs the pdf extra
     * verbose
         Increase verbosity
     * quiet
@@ -113,6 +118,7 @@ def pycoQC(
     config_file = check_arg("config_file", config_file, required_type=str, allow_none=True)
     template_file = check_arg("template_file", template_file, required_type=str, allow_none=True)
     json_outfile = check_arg("json_outfile", json_outfile, required_type=str, allow_none=True)
+    pdf_outfile = check_arg("pdf_outfile", pdf_outfile, required_type=str, allow_none=True)
     skip_coverage_plot = check_arg("skip_coverage_plot", skip_coverage_plot, required_type=bool,
                                    allow_none=False)
 
@@ -150,7 +156,7 @@ def pycoQC(
     logger.debug(plotter)
 
     #~~~~~~~~~~pycoQC_report~~~~~~~~~~#
-    if html_outfile or json_outfile:
+    if html_outfile or json_outfile or pdf_outfile:
         reporter = pycoQC_report(
             parser=parser,
             plotter=plotter,
@@ -162,6 +168,13 @@ def pycoQC(
                 outfile=html_outfile,
                 config_file=config_file,
                 template_file=template_file,
+                report_title=report_title,
+                skip_coverage_plot=skip_coverage_plot)
+
+        if pdf_outfile:
+            reporter.pdf_report(
+                outfile=pdf_outfile,
+                config_file=config_file,
                 report_title=report_title,
                 skip_coverage_plot=skip_coverage_plot)
 

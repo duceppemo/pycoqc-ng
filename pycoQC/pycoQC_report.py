@@ -3,7 +3,9 @@
 
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
+import io
 import json
+import logging
 from importlib.resources import files
 import datetime
 import os
@@ -55,6 +57,99 @@ class pycoQC_report ():
         return "[{}]\n".format(self.__class__.__name__)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~PUBLIC METHODS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+    def pdf_report(self,
+                   outfile: str,
+                   config_file: str = "",
+                   report_title: str = "PycoQC report",
+                   skip_coverage_plot: bool = False,
+                   width: int = 1000,
+                   height: int = 600):
+        """Write the same plots as the HTML report, one per page, as a PDF
+
+        The HTML report embeds the plotly runtime and every point of every
+        plot, which runs to several megabytes. This renders each plot once as
+        a static image, giving a file small enough to attach to an email or
+        drop into a lab notebook, at the cost of the interactivity.
+
+        * outfile
+            Path of the PDF to write.
+        * config_file
+            Same configuration as the HTML report, choosing the plots.
+        * report_title
+            Title printed on each page.
+        * skip_coverage_plot
+            Skip the coverage plot, as for the HTML report.
+        * width, height
+            Page size in pixels.
+        """
+        self.logger.info("Generating PDF report")
+
+        # Imported here so the dependency is only needed when a PDF is asked
+        # for; the HTML report does not require a rendering engine.
+        try:
+            from pypdf import PdfReader, PdfWriter
+        except ImportError:
+            raise pycoQCError(
+                "Writing a PDF report needs the pdf extra: "
+                "pip install 'pycoqc-ng[pdf]'")
+
+        # kaleido and the browser driver beneath it log their internals,
+        # including temporary directory cleanup, to stderr. That is noise in a
+        # command line tool, so quiet them unless debug output was asked for.
+        if not self.logger.isEnabledFor(logging.DEBUG):
+            for name in ("kaleido", "choreographer", "logistro"):
+                logging.getLogger(name).setLevel(logging.WARNING)
+
+        self.logger.info("\tParsing config file")
+        config_dict = self._get_config(config_file)
+
+        writer = PdfWriter()
+        n_plots = 0
+        for method_name, method_args in config_dict.items():
+            if skip_coverage_plot and method_name == "alignment_coverage":
+                self.logger.info("\tSkipping method {}".format(method_name))
+                continue
+            try:
+                self.logger.info("\tRunning method {}".format(method_name))
+                method_args = dict(method_args)
+                plot_title = method_args.pop("plot_title", method_name)
+
+                fig = getattr(self.plotter, method_name)(**method_args)
+                if not fig["data"]:
+                    continue
+
+                fig.update_layout(title=dict(text=plot_title),
+                                  width=width, height=height)
+                try:
+                    page = fig.to_image(format="pdf", width=width, height=height)
+                except Exception as E:
+                    raise pycoQCError(
+                        "Could not render {} to PDF. Writing a PDF report "
+                        "needs the pdf extra: pip install 'pycoqc-ng[pdf]'. "
+                        "Underlying error: {}".format(method_name, E))
+                writer.append(PdfReader(io.BytesIO(page)))
+                n_plots += 1
+
+            except AttributeError as E:
+                self.logger.info("\t\t{} is not a valid plotting method".format(method_name))
+                self.logger.info("\t\t{}".format(E))
+
+            except pycoQCError as E:
+                # A plot whose data is unavailable is skipped, as in the HTML
+                # report, but a missing rendering engine is fatal.
+                if "pdf extra" in str(E):
+                    raise
+                self.logger.info("\t\t{}".format(E))
+
+        if not n_plots:
+            raise pycoQCError("No plot could be rendered for the PDF report")
+
+        self.logger.info("\tWriting to PDF file")
+        mkbasedir(outfile, exist_ok=True)
+        with open(outfile, "wb") as fh:
+            writer.write(fh)
+        self.logger.info("\t\t{} pages written".format(n_plots))
+
     def html_report(self,
                     outfile: str,
                     config_file: str = "",

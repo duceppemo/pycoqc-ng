@@ -60,6 +60,9 @@ def main_pycoQC(args=None):
                            help="Path to an output html file report(required if json_outfile not given)")
     parser_io.add_argument("--json_outfile", "-j", default="", type=str,
                            help="Path to an output json file report(required if html_outfile not given)")
+    parser_io.add_argument("--pdf_outfile", "-p", default="", type=str,
+                           help="Path to an output pdf file report. Static and much smaller than the "
+                                "html report. Needs the pdf extra: pip install 'pycoqc-ng[pdf]'(optional)")
     parser_filt = parser.add_argument_group('Filtering options')
     parser_filt.add_argument("--min_pass_qual", default=7, type=float,
                              help="Minimum quality to consider a read as 'pass'(default: %(default)s)")
@@ -121,8 +124,8 @@ def main_pycoQC(args=None):
         parser.print_help()
         sys.exit(2)
 
-    elif not args.html_outfile and not args.json_outfile:
-        logger.warning("ERROR: At least one output file required `--html_outfile` or `--json_outfile`")
+    elif not args.html_outfile and not args.json_outfile and not args.pdf_outfile:
+        logger.warning("ERROR: At least one output file required `--html_outfile`, `--json_outfile` or `--pdf_outfile`")
         parser.print_help()
         sys.exit(2)
 
@@ -143,6 +146,7 @@ def main_pycoQC(args=None):
         skip_coverage_plot=args.skip_coverage_plot,
         template_file=args.template_file,
         json_outfile=args.json_outfile,
+        pdf_outfile=args.pdf_outfile,
         verbose=args.verbose,
         quiet=args.quiet)
 

@@ -50,6 +50,9 @@ Issues = "https://github.com/duceppemo/pycoqc-ng/issues"
 
 [project.optional-dependencies]
 notebook = ["ipython"]
+# Static image export for the PDF report. kaleido drives a headless browser,
+# which is why it is not a runtime requirement.
+pdf = ["kaleido>=1.0", "pypdf>=4"]
 dev = ["pytest>=7", "pytest-cov>=4", "build", "pyflakes>=3"]
 
 [project.scripts]

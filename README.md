@@ -27,6 +27,7 @@ original reports and adds support for the current Oxford Nanopore toolchain.
   by barcode
 * Runs on current dependencies: numpy 2.x, pandas 2.x and 3.x, plotly 5 to 7,
   pysam 0.22+, Python 3.9 to 3.13
+* A lightweight static **PDF report** alongside the interactive HTML one
 * No compiled extension, so it installs as a pure Python package
 
 ## Installation

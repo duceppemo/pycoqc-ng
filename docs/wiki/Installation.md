@@ -73,6 +73,12 @@ Installed automatically:
 `h5py` ≥3.10, `tqdm` ≥4.66, `pysam` ≥0.22, `python-dateutil` ≥2.8, `pod5` ≥0.2.4
 
 The `notebook` extra adds `ipython`, needed only for the `jhelp()` helper in notebooks.
+The `pdf` extra adds `kaleido` and `pypdf`, needed only for `--pdf_outfile`; kaleido
+drives a headless browser, which is why it is not installed by default:
+
+```sh
+pip install 'pycoqc-ng[pdf]'
+```
 
 There is no compiled extension. Earlier versions of pycoQC shipped a Cython module;
 it was replaced by a vectorised NumPy implementation that is both faster and exact, so

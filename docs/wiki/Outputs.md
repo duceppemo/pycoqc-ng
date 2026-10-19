@@ -16,6 +16,8 @@ between read sets, where *pass* means at or above `--min_pass_qual` and at least
 Which plots appear depends on the columns available. Alignment plots need `-a`, barcode
 plots need barcode information, and %GC plots need a summary built from FASTQ or BAM.
 
+![Basecall summary table](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/basecall-summary.png)
+
 **Summary tables**
 
 | Plot | Shows |
@@ -36,6 +38,10 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `length_boxplot_per_barcode` | Read length per barcode |
 | `gc_boxplot_per_barcode` | %GC per barcode |
 
+![Read length distribution](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-length.png)
+
+![Read quality distribution](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-quality.png)
+
 **Two-dimensional**
 
 | Plot | Shows |
@@ -45,6 +51,8 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `read_len_align_len_2D` | Basecalled against aligned length |
 | `align_len_identity_freq_2D` | Aligned length against identity |
 | `read_qual_identity_freq_2D` | Quality against identity |
+
+![Read length against quality](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-vs-quality.png)
 
 **Over run time**
 
@@ -58,6 +66,15 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `identity_freq_over_time` | Identity over time |
 | `channels_activity` | Per-channel activity heatmap |
 
+![Output over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/output-over-time.png)
+
+![Read quality over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/quality-over-time.png)
+
+![Output per channel over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/channel-activity.png)
+
+*Channel activity over a ten hour run. Bands thinning out partway through usually
+mean pore exhaustion rather than a problem with the library.*
+
 **Barcodes and alignment**
 
 | Plot | Shows |
@@ -67,8 +84,32 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `alignment_rate` | Fraction of bases aligned |
 | `alignment_coverage` | Coverage along the reference |
 
+![Reads per barcode](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/barcode-counts.png)
+
 A falling `read_qual_over_time`, or `channels_activity` thinning out partway through,
 usually points at pore exhaustion rather than anything wrong with the library.
+
+## PDF report
+
+`-p/--pdf_outfile` writes the same plots as static images, one per page. The HTML
+report embeds the plotly runtime and every data point, so it runs to several megabytes;
+the PDF of the same run is usually twenty times smaller, which makes it practical to
+email or paste into a lab notebook. The trade is the interactivity.
+
+```sh
+pycoQC -f sequencing_summary.txt -o report.html -p report.pdf
+```
+
+Rendering needs a headless browser through kaleido, which is an optional extra:
+
+```sh
+pip install 'pycoqc-ng[pdf]'
+```
+
+The PDF honours the same configuration as the HTML report, so trimming the plot list
+trims the PDF. An example built from the bundled test data is in the repository at
+[`docs/examples/pycoQC_report_example.pdf`](https://github.com/duceppemo/pycoqc-ng/blob/main/docs/examples/pycoQC_report_example.pdf)
+(243 KB, against 4.7 MB for the same report as HTML).
 
 ## JSON summary
 

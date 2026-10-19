@@ -31,7 +31,13 @@ pycoQC -f run1/sequencing_summary.txt run2/sequencing_summary.txt -o report.html
 pycoQC -f "sequencing_summary_*.txt" -o report.html
 ```
 
-At least one of `-o` or `-j` is required.
+At least one of `-o`, `-j` or `-p` is required.
+
+A PDF alongside the HTML, for emailing or a lab notebook:
+
+```bash
+pycoQC -f sequencing_summary.txt -o report.html -p report.pdf
+```
 
 ### Input and output
 
@@ -42,6 +48,7 @@ At least one of `-o` or `-j` is required.
 | `-a`, `--bam_file` | BAM of the same reads, preferably aligned with minimap2 |
 | `-o`, `--html_outfile` | HTML report (required unless `-j` is given) |
 | `-j`, `--json_outfile` | JSON summary (required unless `-o` is given) |
+| `-p`, `--pdf_outfile` | Static PDF report, far smaller than the HTML. Needs the `pdf` extra |
 
 ### Filtering
 

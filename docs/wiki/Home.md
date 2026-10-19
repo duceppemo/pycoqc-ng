@@ -41,6 +41,14 @@ alignment.bam          ─┘           └─► pycoQC_report.json   metrics f
 Reads are split into **pass** and **fail** on quality (and optionally length), and most
 plots can be viewed for either set. See [Outputs](Outputs) for the full plot catalogue.
 
+![Basecalled read length against quality](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-vs-quality.png)
+
+*Read length against quality for a Guppy run. In the report this is interactive: hover
+for values, drag to zoom, and switch between all, pass and fail reads.*
+
+A lighter PDF of the same report can be produced alongside the HTML, see
+[Outputs](Outputs#pdf-report).
+
 ## Where to go next
 
 | Page | What it covers |
