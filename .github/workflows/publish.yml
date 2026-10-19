@@ -76,6 +76,10 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          # Publishing a version that is already there is a no-op rather than
+          # a failure: a manual dispatch and a release can both cover one
+          # version.
+          skip-existing: true
 
   pypi:
     name: Publish to PyPI
@@ -91,3 +95,5 @@ jobs:
           name: distributions
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

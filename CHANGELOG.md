@@ -1,6 +1,8 @@
 # Changelog
 
-### 2026-10-19 — pycoqc-ng 3.0.0 (unreleased)
+### 2026-10-19 — pycoqc-ng 3.0.0
+
+First release on PyPI: `pip install pycoqc-ng`
 
 Renamed the distribution to `pycoqc-ng`, continuing from pycoQC 2.5.2. The
 import package is still `pycoQC`, so existing scripts keep working.

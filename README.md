@@ -3,8 +3,9 @@
 **Interactive QC metrics and plots for Oxford Nanopore sequencing data**
 
 [![CI](https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/pycoqc-ng.svg)](https://pypi.org/project/pycoqc-ng/)
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/pypi/pyversions/pycoqc-ng.svg)](https://pypi.org/project/pycoqc-ng/)
 
 `pycoqc-ng` is a maintained continuation of [pycoQC](https://github.com/a-slide/pycoQC)
 by Adrien Leger and Tommaso Leonardi, which is no longer developed. It keeps the
@@ -24,10 +25,16 @@ original reports and adds support for the current Oxford Nanopore toolchain.
 ## Installation
 
 ```sh
+pip install pycoqc-ng
+```
+
+Or the current development version:
+
+```sh
 pip install git+https://github.com/duceppemo/pycoqc-ng.git
 ```
 
-PyPI and bioconda releases are planned; see
+A bioconda recipe is planned; see
 [issues](https://github.com/duceppemo/pycoqc-ng/issues) for progress.
 
 To work on the code:
