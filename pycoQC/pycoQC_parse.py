@@ -439,6 +439,18 @@ class pycoQC_parse():
         for col in required_colnames:
             if col in df:
                 col_found.append(col)
+            elif col in ("read_len", "mean_qscore"):
+                # These two only exist once the reads have been basecalled.
+                # A summary built from POD5, or from a FAST5 holding signal
+                # only, has neither, and naming the internal column alone
+                # left no clue what to do about it.
+                raise pycoQCError(
+                    "Column {} not found in the provided sequence_summary "
+                    "file. Read length and quality only exist once the reads "
+                    "are basecalled, and a summary built from POD5 or from "
+                    "raw FAST5 has neither. Basecall the run first, then "
+                    "build the summary with Bam_to_seq_summary or "
+                    "Fastq_to_seq_summary.".format(col))
             else:
                 raise pycoQCError("Column {} not found in the provided sequence_summary file".format(col))
         for col in optional_colnames:

@@ -138,3 +138,38 @@ class TestFileDiscovery:
             Pod5_to_seq_summary(pod5_dir=str(pod5_dir),
                                 seq_summary_fn=str(tmp_path / "x.txt"),
                                 threads=2)
+
+
+class TestCannotFeedPycoQC:
+
+    def test_error_explains_what_to_do(self, pod5_summary, tmp_path):
+        """A POD5 summary has no basecall columns. Naming the internal column
+        alone left no clue, so the message says why and what to do instead."""
+        from pycoQC.pycoQC import pycoQC
+        with pytest.raises(pycoQCError) as excinfo:
+            pycoQC(summary_file=str(pod5_summary),
+                   html_outfile=str(tmp_path / "r.html"), quiet=True)
+        message = str(excinfo.value)
+        assert "read_len" in message
+        assert "basecalled" in message
+        assert "Bam_to_seq_summary" in message
+
+    @pytest.mark.parametrize("name, passing", [
+        ("FAW_pass_barcode01_0.pod5", True),
+        ("FAW_fail_barcode01_1.pod5", False),
+        ("FAW_skip_barcode01_2.pod5", False),
+        ("plain_reads.pod5", True),
+        # pass is tested first, so it wins when both appear.
+        ("FAW_pass_after_fail_3.pod5", True),
+    ])
+    def test_flag_precedence_follows_the_file_name(self, tmp_path, name,
+                                                   passing):
+        from conftest import _write_pod5
+        d = tmp_path / name.replace(".", "_")
+        d.mkdir()
+        _write_pod5(d / name, n_reads=3)
+        out = tmp_path / f"{name}.txt"
+        Pod5_to_seq_summary(pod5_dir=str(d), seq_summary_fn=str(out),
+                            threads=3)
+        flags = set(pd.read_csv(out, sep="\t")["passes_filtering"])
+        assert flags == {passing}
