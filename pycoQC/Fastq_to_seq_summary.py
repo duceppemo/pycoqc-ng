@@ -10,17 +10,24 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 # Standard library imports
 import multiprocessing as mp
 from time import time
-from collections import *
+from collections import Counter, OrderedDict
 import traceback
 import logging
 from itertools import islice
 import gzip
 
 # Third party imports
+import pandas as pd
 from tqdm import tqdm
 
 # Local imports
-from pycoQC.common import *
+from pycoQC.common import (
+    dict_to_str,
+    mean_qscore,
+    parse_timestamp,
+    pycoQCError,
+    recursive_file_gen,
+    start_time_to_elapsed_seconds)
 
 
 # Logger setup

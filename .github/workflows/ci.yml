@@ -39,6 +39,28 @@ jobs:
       - name: Run test suite
         run: python -m pytest -v
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,notebook]"
+
+      # Catches undefined names and dead imports. This only became useful once
+      # the star imports were removed, since pyflakes cannot resolve names
+      # coming from `import *`.
+      - name: Check for undefined names and unused imports
+        run: python -m pyflakes pycoQC tests
+
   build:
     name: Build distributions
     runs-on: ubuntu-latest

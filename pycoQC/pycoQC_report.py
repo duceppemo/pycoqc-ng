@@ -13,7 +13,7 @@ import plotly.offline as py
 import jinja2
 
 # Local imports
-from pycoQC.common import *
+from pycoQC.common import get_logger, mkbasedir, pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import pycoQC_plot
 from pycoQC import __version__ as package_version

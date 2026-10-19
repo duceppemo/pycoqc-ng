@@ -3,7 +3,7 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Standard library imports
-from collections import *
+from collections import OrderedDict, namedtuple
 import warnings
 import datetime
 
@@ -15,9 +15,8 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 # Local lib import
-from pycoQC.common import *
+from pycoQC.common import get_logger, pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
-from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

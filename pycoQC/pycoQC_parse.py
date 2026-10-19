@@ -3,9 +3,8 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Standard library imports
-from collections import *
+from collections import Counter, OrderedDict
 import warnings
-from datetime import datetime
 
 # Third party imports
 import numpy as np
@@ -13,7 +12,12 @@ import pandas as pd
 import pysam as ps
 
 # Local lib import
-from pycoQC.common import *
+from pycoQC.common import (
+    dict_to_str,
+    expand_file_names,
+    get_logger,
+    merge_files_to_df,
+    pycoQCError)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 

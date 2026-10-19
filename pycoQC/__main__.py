@@ -8,9 +8,6 @@ import sys
 import textwrap
 from importlib.resources import files
 
-# Third party imports
-from jinja2 import Environment, PackageLoader, Template
-
 # Local imports
 from pycoQC.pycoQC import pycoQC
 from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary

@@ -6,7 +6,6 @@ the production version is vectorised for speed.
 """
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from pycoQC.pycoQC_parse import pycoQC_parse

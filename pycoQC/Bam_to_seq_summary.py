@@ -1,14 +1,21 @@
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 
 # Third party imports
+import pandas as pd
 from tqdm import tqdm
 import pysam
 
 # Local imports
-from pycoQC.common import *
+from pycoQC.common import (
+    mean_qscore,
+    parse_timestamp,
+    pycoQCError,
+    recursive_file_gen,
+    start_time_to_elapsed_seconds)
 
 
 # Logger setup

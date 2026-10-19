@@ -50,7 +50,7 @@ Issues = "https://github.com/duceppemo/pycoqc-ng/issues"
 
 [project.optional-dependencies]
 notebook = ["ipython"]
-dev = ["pytest>=7", "build"]
+dev = ["pytest>=7", "build", "pyflakes>=3"]
 
 [project.scripts]
 pycoQC = "pycoQC.__main__:main_pycoQC"

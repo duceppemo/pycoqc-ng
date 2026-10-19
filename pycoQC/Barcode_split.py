@@ -3,7 +3,7 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Standard library imports
-from collections import *
+from collections import OrderedDict, namedtuple
 import warnings
 import datetime
 import os
@@ -14,7 +14,7 @@ import pandas as pd
 # Local lib import
 from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
-from pycoQC.common import *
+from pycoQC.common import dict_to_str, get_logger, pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

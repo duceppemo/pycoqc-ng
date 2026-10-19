@@ -3,12 +3,11 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Standard library imports
-from collections import *
 import warnings
 import datetime
 
 # Local lib import
-from pycoQC.common import *
+from pycoQC.common import check_arg, dict_to_str, get_logger
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import pycoQC_plot
 from pycoQC.pycoQC_report import pycoQC_report

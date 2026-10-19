@@ -1,15 +1,16 @@
 # Standard library imports
+import logging
 import os
-from time import time
 from concurrent.futures import ThreadPoolExecutor
 
 # Third party imports
+import pandas as pd
 import pod5 as p5
 from tqdm import tqdm
 import numpy as np
 
 # Local imports
-from pycoQC.common import *
+from pycoQC.common import pycoQCError, recursive_file_gen
 
 # Disable multithreading for MKL and openBlas
 
@@ -73,8 +74,6 @@ class Pod5_to_seq_summary():
         self.basecall_id = basecall_id
         self.include_path = include_path
         self.verbose_level = verbose_level
-
-        t = time()
 
         # Define processes
         pod5_list = Pod5_to_seq_summary.list_pod5(self.pod5_dir, self.max_pod5)

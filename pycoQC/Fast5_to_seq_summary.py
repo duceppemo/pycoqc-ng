@@ -10,7 +10,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 # Standard library imports
 import multiprocessing as mp
 from time import time
-from collections import *
+from collections import Counter, OrderedDict
 import traceback
 import logging
 
@@ -21,7 +21,7 @@ import h5py
 from tqdm import tqdm
 
 # Local imports
-from pycoQC.common import *
+from pycoQC.common import dict_to_str, pycoQCError, recursive_file_gen
 
 # Logger setup
 logging.basicConfig(level=logging.INFO, format='%(message)s')

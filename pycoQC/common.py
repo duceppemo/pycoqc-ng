@@ -6,7 +6,7 @@ from os import access, R_OK, listdir, path, makedirs
 import inspect
 from glob import iglob, glob
 import logging
-from collections import *
+from collections import Counter, OrderedDict
 
 # Third party imports
 from dateutil.parser import parse as _dateutil_parse
@@ -318,9 +318,12 @@ def arg_opt(func, arg, **kwargs):
     return arg_dict
 
 
-def jhelp(f: "python function or method"):
+def jhelp(f):
     """
     Display a Markdown pretty help message for functions and class methods(default __init__ is a class is passed)
+
+    * f
+        A python function or method.
     jhelp also display default values and type annotations if available.
     The docstring synthax should follow the same synthax as the one used for this function
     * f
