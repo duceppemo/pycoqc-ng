@@ -4,7 +4,7 @@ This is the recipe for the bioconda package, kept here so it can be built and
 tested locally:
 
 ```sh
-conda build conda-recipe -c conda-forge -c bioconda
+conda build recipe -c conda-forge -c bioconda
 ```
 
 Bioconda builds from its own copy at `recipes/pycoqc-ng/meta.yaml` in
