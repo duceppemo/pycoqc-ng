@@ -141,8 +141,12 @@ class pycoQC_parse():
             self.logger.debug("\tVerifying fields and discarding unused columns")
             df = self._select_df_columns(
                 df=df,
-                required_colnames=["read_id", "run_id", "channel", "start_time", "read_len", "mean_qscore"],
-                optional_colnames=["calibration", "barcode", "%GC"])
+                required_colnames=["read_id", "read_len", "mean_qscore"],
+                # Run metadata is optional: a plain fastq, an Illumina run or
+                # any basecaller output without ONT headers carries none of
+                # it. Plots that need a missing column are skipped.
+                optional_colnames=["run_id", "channel", "start_time",
+                                   "calibration", "barcode", "%GC"])
 
         # Collect stats
         n = len(df)
@@ -245,10 +249,20 @@ class pycoQC_parse():
 
     def _clean_reads_df(self, df):
         """"""
+        # A converter emits a column even when it could not fill it, so an
+        # entirely empty optional column means the information is absent
+        # rather than that every read should be discarded.
+        for col in ("run_id", "channel", "start_time", "barcode", "%GC"):
+            if col in df and df[col].isna().all():
+                self.logger.info("\tNo {} information available".format(col))
+                df = df.drop(columns=col)
+
         # Drop lines containing NA values
         self.logger.info("\tDiscarding lines containing NA values")
         l = len(df)
-        df = df.dropna(subset=["read_id", "run_id", "channel", "start_time", "read_len", "mean_qscore"])
+        subset = [c for c in ("read_id", "run_id", "channel", "start_time",
+                              "read_len", "mean_qscore") if c in df]
+        df = df.dropna(subset=subset)
         if '%GC' in df:
             df = df.dropna(subset="%GC")
         n = l-len(df)
@@ -289,6 +303,12 @@ class pycoQC_parse():
             if len(df) <= 1:
                 raise pycoQCError("No valid read left after calibration strand filtering")
 
+        # Ordering runs in time needs both columns; without them there is
+        # nothing to order and the reads are left as they are.
+        if "run_id" not in df or "start_time" not in df:
+            self.logger.info("\tSkipping run ordering, no run_id or start_time")
+            return self._finalise_reads_df(df)
+
         # Filter and reorder based on runid_list list if passed by user
         if self.runid_list:
             self.logger.info("\tSelecting run_ids passed by user")
@@ -306,7 +326,11 @@ class pycoQC_parse():
             self.logger.info("\tSorting run IDs by decreasing throughput")
             d = {}
             for run_id, sdf in df.groupby("run_id"):
-                d[run_id] = len(sdf) / np.ptp(sdf["start_time"])
+                # A run whose reads all carry the same timestamp spans no
+                # time, so throughput is undefined rather than infinite. Rank
+                # it last instead of dividing by zero.
+                span = float(np.ptp(sdf["start_time"]))
+                d[run_id] = len(sdf) / span if span else 0.0
             runid_list = [i for i, j in sorted(d.items(), key=lambda t: t[1], reverse=True)]
             self.logger.info("\t\tRun-id order {}".format(runid_list))
 
@@ -323,6 +347,14 @@ class pycoQC_parse():
             increment_time += max_val+1
         df = df.sort_values("start_time")
 
+        return self._finalise_reads_df(df)
+
+    def _finalise_reads_df(self, df):
+        """Barcode cleanup, typing and indexing, shared by every input
+
+        Reached either after the runs have been ordered in time, or directly
+        when there is no run or timing information to order by.
+        """
         #  Unset low frequency barcodes
         if "barcode" in df and self.min_barcode_percent:
             self.logger.info("\tCleaning up low frequency barcodes")
@@ -337,7 +369,9 @@ class pycoQC_parse():
 
         # Cast values to required types
         self.logger.info("\tCast value to appropriate type")
-        df = df.astype({'channel': "uint16", "start_time": "float32", "read_len": "uint32", "mean_qscore": "float32"})
+        dtypes = {"channel": "uint16", "start_time": "float32",
+                  "read_len": "uint32", "mean_qscore": "float32"}
+        df = df.astype({k: v for k, v in dtypes.items() if k in df})
 
         # Reindex final df
         self.logger.info("\tReindexing dataframe by read_ids")

@@ -146,10 +146,14 @@ class pycoQC_plot():
 
     @property
     def is_promethion(self):
+        if "channel" not in self.all_df:
+            return False
         return self.all_df["channel"].max() > 512
 
     @property
     def is_flongle(self):
+        if "channel" not in self.all_df:
+            return False
         return self.all_df["channel"].max() < 127
 
     @property
@@ -157,13 +161,22 @@ class pycoQC_plot():
         if self.has_alignment:
             return np.sum(list(self.ref_len_dict.values()))
 
+    # Run metadata is optional. A summary built from a plain fastq, or from an
+    # Illumina run, carries no timing, channel or run id, so these report NA
+    # rather than failing and taking the whole summary table with them.
     def _run_duration(self, df):
+        if "start_time" not in df:
+            return np.nan
         return float(np.ptp(df["start_time"]) / 3600)
 
     def _active_channels(self, df):
+        if "channel" not in df:
+            return np.nan
         return int(df["channel"].nunique())
 
     def _runid_number(self, df):
+        if "run_id" not in df:
+            return np.nan
         return int(df["run_id"].nunique())
 
     def _barcodes_number(self, df):
@@ -188,14 +201,27 @@ class pycoQC_plot():
     def _basecall_N50(self, df):
         return self._compute_N50(df["read_len"])
 
+    @staticmethod
+    def _median_or_nan(values):
+        """Median of a column, or NA when there is nothing to take it of
+
+        A read set can legitimately be empty: a run where every read passes
+        has no failing reads. np.median warns and returns nan for an empty
+        input, so the emptiness is checked rather than relied upon.
+        """
+        values = values.dropna()
+        if values.empty:
+            return np.nan
+        return np.median(values)
+
     def _basecall_median_read_len(self, df):
-        return np.median(df["read_len"])
+        return self._median_or_nan(df["read_len"])
 
     def _basecall_median_read_qscore(self, df):
-        return np.median(df["mean_qscore"])
+        return self._median_or_nan(df["mean_qscore"])
 
     def _basecall_median_read_gc(self, df):
-        return np.median(df["%GC"])
+        return self._median_or_nan(df["%GC"])
 
     def _alignment_mean_coverage(self, df):
         return df["align_len"].dropna().sum()/self.total_ref_len if self.has_alignment else np.nan
@@ -210,10 +236,10 @@ class pycoQC_plot():
         return self._compute_N50(df["align_len"]) if self.has_alignment else np.nan
 
     def _alignment_median_read_len(self, df):
-        return np.median(df["align_len"].dropna()) if self.has_alignment else np.nan
+        return self._median_or_nan(df["align_len"]) if self.has_alignment else np.nan
 
     def _alignment_median_identity(self, df):
-        return np.median(df["identity_freq"].dropna()) if self.has_identity_freq else np.nan
+        return self._median_or_nan(df["identity_freq"]) if self.has_identity_freq else np.nan
 
     def _alignment_insertion_rate(self, df):
         return df["insertion"].dropna().sum()/self._aligned_bases(df) if self.has_identity_freq else np.nan
@@ -1249,6 +1275,8 @@ class pycoQC_plot():
         return go.Figure(data=data, layout=layout)
 
     def __output_over_time_data(self, df_level, count_level, time_bins=500):
+        if "start_time" not in self.all_df:
+            raise pycoQCError("No start_time information available")
         """Private function preparing data for output_over_time"""
         self.logger.debug("\t\tPreparing data for {} {}".format(df_level, count_level))
 
@@ -1600,6 +1628,8 @@ class pycoQC_plot():
         return go.Figure(data=data, layout=layout)
 
     def __over_time_data(self, df_level, field_name="read_len", smooth_sigma=1.5, time_bins=500):
+        if "start_time" not in self.all_df:
+            raise pycoQCError("No start_time information available")
         """Private function preparing data for qual_over_time"""
         self.logger.debug("\t\tPreparing data for {} reads and {}".format(df_level, field_name))
 
@@ -1799,6 +1829,9 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        if "channel" not in self.all_df or "start_time" not in self.all_df:
+            raise pycoQCError("No channel or start_time information available")
+
         self.logger.info("\t\tComputing plot")
 
         # Define maximal number of channels
@@ -1852,6 +1885,8 @@ class pycoQC_plot():
         return go.Figure(data=data, layout=layout)
 
     def __channels_activity_data(self, df_level, count_level="bases", n_channels=512, smooth_sigma=2, time_bins=150):
+        if "channel" not in self.all_df or "start_time" not in self.all_df:
+            raise pycoQCError("No channel or start_time information available")
         """Private function preparing data for channels_activity"""
         self.logger.debug("\t\tPreparing data for {} {}".format(df_level, count_level))
 
@@ -2314,7 +2349,14 @@ class pycoQC_plot():
     #~~~~~~~PRIVATE METHODS~~~~~~~#
     @staticmethod
     def _compute_percentiles(data):
-        return list(np.quantile(data.dropna(), q=np.linspace(0, 1, 101)))
+        # A read set can legitimately be empty, in either direction: a clean
+        # run has no failing reads, and a bad flowcell or the wrong
+        # basecalling model can leave none passing. np.quantile raises on an
+        # empty input, so report NA for each percentile instead.
+        values = data.dropna()
+        if values.empty:
+            return [np.nan] * 101
+        return list(np.quantile(values, q=np.linspace(0, 1, 101)))
 
     @staticmethod
     def _compute_N50(data):
@@ -2328,6 +2370,10 @@ class pycoQC_plot():
 
     @staticmethod
     def _compute_hist(data, x_scale="linear", smooth_sigma=2, nbins=200):
+
+        # Nothing to bin when the read set is empty.
+        if len(data) == 0:
+            return [], []
 
         # Count each categories in log or linear space
         min_value = np.nanmin(data)
