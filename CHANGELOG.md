@@ -27,6 +27,11 @@ import package is still `pycoQC`, so existing scripts keep working.
   reading times from the undropped frame, pairing values with the wrong times.
 * `plotly` 7 compatibility (the removed `show_link` argument).
 * `python -m pycoQC` did nothing, as `__main__.py` had no entry guard.
+* `mkdir` raised `pycoMethError`, a name from another project, so any failure
+  to create an output directory surfaced as a `NameError`.
+* FASTQ chunk sizes were counted in lines. A fastq record is four lines, so a
+  size that was not a multiple of four split a record and silently dropped
+  it. Chunks are now counted in reads, and a block ending mid-record warns.
 
 **Performance**
 
@@ -35,11 +40,27 @@ import package is still `pycoQC`, so existing scripts keep working.
 * Mean q-scores are computed with a 256-bin count and one dot product.
 * Together: 3.3x faster FASTQ parsing, with byte-identical output.
 * Vectorised the over-time percentile binning and the coverage offsets.
+* Flattened the nested multiprocessing in `Fastq_to_seq_summary`. Each worker
+  process used to open a process pool of its own, so the process count was
+  roughly the square of the thread count: 202 processes at `-t 16`, now 17.
+  Removing the oversubscription also cut 48,000 reads over 16 files from
+  4.16s to 3.33s, and a single 50,000-read file from 5.01s to 3.97s.
+
+**Refactoring**
+
+* Replaced `from pycoQC.common import *` and `from collections import *` with
+  explicit imports throughout. Two modules had been using `logging` and `pd`
+  without importing them, relying on them leaking through the star import,
+  which also made the namespace fragile. With that done pyflakes resolves
+  names for the first time and found several unused imports and variables,
+  now removed.
 
 **Project**
 
-* Added a test suite (55 tests) and GitHub Actions CI across Python 3.9-3.13;
+* Added a test suite (73 tests) and GitHub Actions CI across Python 3.9-3.13;
   replaced the dead Travis configuration.
+* pyflakes runs as a CI lint job, so undefined names and dead imports fail
+  the build.
 
 
 ### 18/11/2023 v-3.0.0.0
