@@ -104,3 +104,10 @@ ENV/
 # data
 tests/
 docs/*/large_data/
+
+# Cython generated sources (regenerated from .pyx at build time)
+functions.c
+pycoQC/*.c
+
+# Local tooling / installers
+miniconda.sh

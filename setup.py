@@ -35,7 +35,7 @@ setup(
         'h5py>=3.10',
         'tqdm>=4.66',
         'pysam>=0.22',
-        'Cython>=3.0'],
+        'cython>=3.0'],
     packages=['pycoQC'],
     package_dir={'pycoQC': 'pycoQC'},
     package_data={'pycoQC': ['templates/*']},
