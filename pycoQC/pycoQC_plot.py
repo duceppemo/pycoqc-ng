@@ -1328,18 +1328,25 @@ class pycoQC_plot():
             lab_text = []
             lab_name = []
             lab_x = []
-            for lab in (50, 75, 90, 99, 100):
+            lab_y = []
+            for n, lab in enumerate((50, 75, 90, 99, 100)):
                 val = y_cum_max * lab / 100
                 idx = (np.abs(y_cum-val)).argmin()
+                # x comes from a float32 column, and rounding one keeps its
+                # full binary expansion, so 16.84 printed as 16.84000015258789.
                 lab_text.append(["", '{}%<br>{}h<br>{:,} {}'.format(
-                    lab, round(x[idx], 2), int(y_cum[idx]), count_level)])
+                    lab, round(float(x[idx]), 2), int(y_cum[idx]), count_level)])
                 lab_x.append([x[idx], x[idx]])
                 lab_name.append("{}%".format(lab))
+                # The last markers sit close together on a long run, so drop
+                # alternate labels down the line to keep them legible.
+                top = y_cum_max if n % 2 == 0 else y_cum_max * 0.82
+                lab_y.append([0, top])
 
             # make data dict
             data_dict = dict(
                 x=[x, x]+lab_x,
-                y=[y_cum, y, [0, y_cum_max], [0, y_cum_max], [0, y_cum_max], [0, y_cum_max], [0, y_cum_max]],
+                y=[y_cum, y]+lab_y,
                 name=["Cumulative", "Interval"]+lab_name,
                 text=["", ""] + lab_text)
 
@@ -1673,7 +1680,8 @@ class pycoQC_plot():
             # Values smoothing
             if smooth_sigma:
                 for val in val_name:
-                    stat_dict[val] = gaussian_filter1d(stat_dict[val], sigma=smooth_sigma)
+                    stat_dict[val] = self._smooth_with_gaps(
+                        stat_dict[val], smooth_sigma)
 
             # make data dict
             data_dict = dict(
@@ -2351,6 +2359,42 @@ class pycoQC_plot():
         return label, data_dict
 
     #~~~~~~~PRIVATE METHODS~~~~~~~#
+    @staticmethod
+    def _smooth_with_gaps(values, sigma, min_weight=0.35):
+        """Gaussian smoothing that tolerates empty bins
+
+        Time bins with no reads in them are normal: a run pauses, output
+        tails off, or the bins are simply finer than the data. Passing those
+        gaps straight to gaussian_filter1d spreads the missing value over
+        every neighbour, and a run with enough of them lost the whole series,
+        leaving a plot with axes and no data.
+
+        Each point is averaged over the neighbours that do have data, by
+        filtering the values and a mask of where they are and dividing one by
+        the other. Stretches with too little support nearby stay empty rather
+        than being invented.
+
+        * values
+            One value per time bin, missing bins as nan.
+        * sigma
+            Width of the gaussian, in bins.
+        * min_weight
+            How much neighbouring data a point needs before it is drawn.
+        """
+        values = np.asarray(values, dtype=float)
+        present = np.isfinite(values)
+        if not present.any():
+            return values
+
+        filled = np.where(present, values, 0.0)
+        smoothed = gaussian_filter1d(filled, sigma=sigma)
+        weight = gaussian_filter1d(present.astype(float), sigma=sigma)
+
+        out = np.full_like(values, np.nan)
+        usable = weight > min_weight * weight.max()
+        np.divide(smoothed, weight, out=out, where=usable)
+        return out
+
     @staticmethod
     def _compute_percentiles(data):
         # A read set can legitimately be empty, in either direction: a clean

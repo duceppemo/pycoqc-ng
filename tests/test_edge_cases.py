@@ -164,3 +164,39 @@ class TestFilteringRejectsEverything:
             pycoQC(summary_file=str(summary),
                    html_outfile=str(tmp_path / "r.html"),
                    runid_list=["no_such_run"], quiet=True)
+
+
+class TestSmoothingWithGaps:
+    """Time bins with no reads are normal: a run pauses, or the bins are
+    finer than the data."""
+
+    def test_gaps_do_not_wipe_out_the_series(self):
+        """Regression: gaussian_filter1d spreads a nan over its neighbours,
+        so a run with enough empty bins lost every point and the plot came
+        out as axes with no data."""
+        values = np.full(100, np.nan)
+        values[::10] = np.arange(10, dtype=float)
+        smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=1.5)
+        assert np.isfinite(smoothed).sum() > 0
+
+    def test_values_are_preserved_where_data_is_dense(self):
+        values = np.linspace(0, 10, 100)
+        smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=1.0)
+        np.testing.assert_allclose(smoothed[20:80], values[20:80], atol=0.5)
+
+    def test_all_missing_stays_all_missing(self):
+        values = np.full(50, np.nan)
+        assert np.isnan(pycoQC_plot._smooth_with_gaps(values, sigma=1.5)).all()
+
+    def test_regions_far_from_any_data_stay_empty(self):
+        """Smoothing should not invent a value where nothing was measured."""
+        values = np.full(200, np.nan)
+        values[:20] = 5.0
+        smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=1.0)
+        assert np.isnan(smoothed[-1])
+
+    def test_a_single_point_survives(self):
+        values = np.full(50, np.nan)
+        values[25] = 7.0
+        smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=1.0)
+        assert np.isfinite(smoothed[25])

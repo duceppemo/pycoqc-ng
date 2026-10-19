@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 180" width="1180" height="180"
+     role="img" aria-label="pycoqc-ng: interactive QC plots for Oxford Nanopore sequencing data">
+  <title>pycoqc-ng</title>
+  <defs>
+    <clipPath id="lens-clip">
+      <circle cx="52" cy="52" r="47"/>
+    </clipPath>
+  </defs>
+  <style>
+    .fail  { fill: #94a3b8; }
+    .pass  { fill: #2f8f5b; }
+    .axis  { stroke: #cbd5e1; stroke-width: 3; stroke-linecap: round; }
+    .cut   { stroke: #94a3b8; stroke-width: 2.4; stroke-dasharray: 5 6; }
+    .ring  { fill: none; stroke: #475569; stroke-width: 9; }
+    .word  { font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; font-weight: 700; }
+    .tag   { font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; }
+  </style>
+
+  <!-- A read-quality histogram: grey bars fall below the quality cutoff, green
+       bars pass. The lens enlarges the tail of the distribution. -->
+  <g transform="translate(40 20)">
+    <g class="fail">
+      <rect x="0"  y="104" width="15" height="18" rx="3"/>
+      <rect x="19" y="84"  width="15" height="38" rx="3"/>
+      <rect x="38" y="56"  width="15" height="66" rx="3"/>
+    </g>
+    <g class="pass">
+      <rect x="57"  y="28" width="15" height="94"  rx="3"/>
+      <rect x="76"  y="10" width="15" height="112" rx="3"/>
+      <rect x="95"  y="4"  width="15" height="118" rx="3"/>
+      <rect x="114" y="18" width="15" height="104" rx="3"/>
+      <rect x="133" y="38" width="15" height="84"  rx="3"/>
+      <rect x="152" y="60" width="15" height="62"  rx="3"/>
+    </g>
+
+    <line class="cut" x1="55" y1="-6" x2="55" y2="130"/>
+    <line class="axis" x1="0" y1="124" x2="196" y2="124"/>
+
+    <!-- Magnifier over the tail, showing it enlarged -->
+    <g transform="translate(176 10)">
+      <line x1="78" y1="78" x2="124" y2="124" stroke="#475569" stroke-width="19" stroke-linecap="round"/>
+      <g clip-path="url(#lens-clip)">
+        <rect x="0" y="0" width="110" height="110" fill="#ffffff"/>
+        <rect class="pass" x="8"  y="40" width="20" height="62" rx="4"/>
+        <rect class="pass" x="34" y="56" width="20" height="46" rx="4"/>
+        <rect class="pass" x="60" y="70" width="20" height="32" rx="4"/>
+        <rect class="pass" x="86" y="82" width="20" height="20" rx="4"/>
+        <line class="axis" x1="2" y1="103" x2="108" y2="103"/>
+      </g>
+      <circle class="ring" cx="52" cy="52" r="47"/>
+    </g>
+  </g>
+
+  <g transform="translate(372 0)">
+    <text class="word" x="0" y="92" font-size="78" fill="#1d6fb8">pycoQC<tspan fill="#94a3b8">-</tspan><tspan fill="#2f8f5b">ng</tspan></text>
+    <text class="tag" x="4" y="136" font-size="26" fill="#64748b">interactive QC plots for Oxford Nanopore sequencing data</text>
+  </g>
+</svg>

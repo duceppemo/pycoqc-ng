@@ -45,8 +45,9 @@ plots can be viewed for either set. See [Outputs](Outputs) for the full plot cat
 
 ![Basecalled read length against quality](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-vs-quality.png)
 
-*Read length against quality for a Guppy run. In the report this is interactive: hover
-for values, drag to zoom, and switch between all, pass and fail reads.*
+*Read length against quality for a 48 hour lambda phage run. In the report this is
+interactive: hover for values, drag to zoom, and switch between all, pass and fail
+reads.*
 
 ## Where to go next
 

@@ -98,6 +98,8 @@ class pycoQC_parse():
             self.bam_file_list = []
 
         self.logger.warning("Parse data files")
+        # Filled by _parse_summary; defined here so it always exists.
+        self.run_metadata = OrderedDict()
         summary_reads_df = self._parse_summary()
         barcode_reads_df = self._parse_barcode()
         bam_reads_df, self.alignments_df, self.ref_len_dict = self._parse_bam()
@@ -139,6 +141,8 @@ class pycoQC_parse():
 
             # Verify the required and optional columns, Drop unused fields
             self.logger.debug("\tVerifying fields and discarding unused columns")
+            self.run_metadata = self._collect_run_metadata(df)
+
             df = self._select_df_columns(
                 df=df,
                 required_colnames=["read_id", "read_len", "mean_qscore"],
@@ -154,6 +158,52 @@ class pycoQC_parse():
         self.counter["Initial reads"] = n
 
         return df
+
+    # Columns that describe the run rather than a read. Several spellings
+    # exist because the basecallers and the converters disagree, and the
+    # first one present wins.
+    RUN_METADATA_COLUMNS = (
+        ("Run started", ("run_start_time", "acquisition_start_time",
+                         "exp_start_time", "protocol_start_time")),
+        ("Sample", ("sample_id", "sampleid", "sample")),
+        ("Experiment", ("experiment_id", "experiment_name", "protocol_group_id")),
+        ("Flow cell ID", ("flow_cell_id", "flowcell_id")),
+        ("Flow cell type", ("flow_cell_product_code", "flowcell_type")),
+        ("Device", ("device_id", "device", "hostname")),
+        ("Device type", ("device_type", "sequencer_position_type")),
+        ("Sequencing kit", ("sequencing_kit",)),
+        ("Barcoding kit", ("barcode_kit", "barcode_arrangement_kit")),
+        ("Basecalling model", ("dorado_model", "basecall_model",
+                               "model_version_id", "basecaller_model")),
+        ("Acquisition software", ("software", "minknow_version")),
+        ("Protocol", ("protocol_name",)),
+        ("Protocol run ID", ("protocol_run_id",)),
+    )
+
+    def _collect_run_metadata(self, df):
+        """Record the run level columns before the unused ones are dropped
+
+        A summary carries more about the run than pycoQC plots: the flow cell,
+        the device, the kit, the basecalling model. Those columns are
+        discarded when the frame is reduced to what the plots need, so they
+        are collected here for the report to show.
+
+        A column counts as run level only if it holds a handful of distinct
+        values at most; anything more varies per read and is not metadata.
+        """
+        metadata = OrderedDict()
+        for label, candidates in self.RUN_METADATA_COLUMNS:
+            for column in candidates:
+                if column not in df:
+                    continue
+                values = df[column].dropna().astype(str)
+                values = values[values.str.strip() != ""]
+                unique = values.unique()
+                if len(unique) == 0 or len(unique) > 4:
+                    continue
+                metadata[label] = ", ".join(sorted(unique))
+                break
+        return metadata
 
     def _parse_barcode(self):
         """"""

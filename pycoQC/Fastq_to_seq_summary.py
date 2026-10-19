@@ -144,6 +144,10 @@ class FastqParser(object):
 
         channel = read_dict.get('ch', '')
 
+        # Dorado writes the flowcell as PU and the sample library as LB.
+        flowcell = read_dict.get('PU', '')
+        sample_id = read_dict.get('sampleid') or read_dict.get('LB') or ''
+
         # Guppy names the barcode, Dorado uses SM with al as the alias, and
         # some versions write BC.
         barcode = (read_dict.get('barcode') or read_dict.get('SM')
@@ -180,6 +184,8 @@ class FastqParser(object):
         entry_dict[read_id]['gc_percent'] = gc
         entry_dict[read_id]['start_time'] = time_string
         entry_dict[read_id]['passes_filtering'] = flag
+        entry_dict[read_id]['flow_cell_id'] = flowcell
+        entry_dict[read_id]['sample_id'] = sample_id
 
         return entry_dict
 
@@ -392,6 +398,12 @@ class Fastq_to_seq_summary():
             # Transform collected data to dataframe and write to file
             logger.debug("[WRITER] Write data to file")
             df = pd.DataFrame(l)
+
+            # Keep the absolute start of the run before the per read times
+            # become seconds elapsed, so the report can say when it ran.
+            absolute = pd.to_datetime(df['start_time'], errors="coerce")
+            if absolute.notna().any():
+                df['run_start_time'] = absolute.min().isoformat()
 
             # Express read start times as seconds since the first read
             df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])

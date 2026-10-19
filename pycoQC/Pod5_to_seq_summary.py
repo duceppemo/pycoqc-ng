@@ -143,6 +143,11 @@ class Pod5_to_seq_summary():
 
                 sample_id = read.run_info.sample_id
                 flowcell_id = read.run_info.flow_cell_id
+                run_start = read.run_info.acquisition_start_time
+                flowcell_type = read.run_info.flow_cell_product_code
+                sequencing_kit = read.run_info.sequencing_kit
+                device = read.run_info.sequencer_position
+                software = read.run_info.software
                 read_number = read.read_number
 
                 # Info that might not be present
@@ -175,7 +180,14 @@ class Pod5_to_seq_summary():
                      "flowcell_id": flowcell_id,
                      "read_number": read_number,
                      "barcode_arrangement": barcode,
-                     "passes_filtering": flag
+                     "passes_filtering": flag,
+                     # Run level fields, carried so the report can describe
+                     # the run rather than only the reads.
+                     "run_start_time": run_start,
+                     "flow_cell_product_code": flowcell_type,
+                     "sequencing_kit": sequencing_kit,
+                     "device_id": device,
+                     "software": software,
                      }
                 pod5_dict[read_id] = d
 

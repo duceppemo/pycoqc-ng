@@ -73,7 +73,7 @@ packages = ["pycoQC", "pycoQC.templates"]
 version = {attr = "pycoQC.__version__"}
 
 [tool.setuptools.package-data]
-pycoQC = ["templates/*"]
+pycoQC = ["templates/*", "templates/vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

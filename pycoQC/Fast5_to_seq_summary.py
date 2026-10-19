@@ -58,6 +58,7 @@ class Fast5_to_seq_summary ():
         "device_id": {"grp": "tracking_id", "attrs": "device_id"},
         "protocol_run_id": {"grp": "tracking_id", "attrs": "protocol_run_id"},
         "flow_cell_id": {"grp": "tracking_id", "attrs": "flow_cell_id"},
+        "exp_start_time": {"grp": "tracking_id", "attrs": "exp_start_time"},
         "calibration_strand_genome_template": {"grp": "summary_calibration", "attrs": "genome"},
         "calibration_strand_end": {"grp": "summary_calibration", "attrs": "genome_end"},
         "calibration_strand_start": {"grp": "summary_calibration", "attrs": "genome_start"},
@@ -78,7 +79,8 @@ class Fast5_to_seq_summary ():
                  fields: list = (
                          "read_id", "run_id", "channel", "start_time",
                          "sequence_length_template", "mean_qscore_template",
-                         "calibration_strand_genome_template", "barcode_arrangement")):
+                         "calibration_strand_genome_template", "barcode_arrangement",
+                         "sample_id", "device_id", "flow_cell_id", "exp_start_time")):
         """
         * fast5_dir
             Directory containing fast5 files. Can contain multiple subdirectories

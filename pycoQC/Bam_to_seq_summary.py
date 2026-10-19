@@ -161,6 +161,9 @@ class Bam_to_seq_summary():
                 # with al holding the sample-sheet alias.
                 "barcode": rg.get("SM") or rg.get("al") or "",
                 "sample_id": rg.get("LB", ""),
+                # DT is the protocol start time, which is what answers
+                # "when was this run?" in the report.
+                "run_start_time": rg.get("DT", ""),
             }
         return groups
 
@@ -214,6 +217,8 @@ class Bam_to_seq_summary():
                 flowcell = group["flowcell_id"]
                 sequencer = group["device_id"]
                 model = group["dorado_model"]
+                run_start = group["run_start_time"]
+                sample_id = group["sample_id"]
 
                 # st and ch are required by the spec but a BAM from another
                 # tool may lack them, and a missing value should not stop the
@@ -261,6 +266,8 @@ class Bam_to_seq_summary():
                 entry_dict[read_id]['device_id'] = sequencer
                 entry_dict[read_id]['dorado_model'] = model
                 entry_dict[read_id]['filename'] = file_name
+                entry_dict[read_id]['sample_id'] = sample_id
+                entry_dict[read_id]['run_start_time'] = run_start
 
         return entry_dict
 

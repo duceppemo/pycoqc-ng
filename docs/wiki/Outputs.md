@@ -68,12 +68,22 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 
 ![Output over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/output-over-time.png)
 
+*Cumulative output flattening out as the run goes on, with the interval trace falling
+away beneath it. The two sharp dips are pauses in this run. A cumulative curve that
+goes flat early means the flow cell stopped producing.*
+
 ![Read quality over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/quality-over-time.png)
+
+*Median quality drifting down over 48 hours with the spread widening, the usual
+signature of pores degrading.*
 
 ![Output per channel over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/channel-activity.png)
 
-*Channel activity over a ten hour run. Bands thinning out partway through usually
-mean pore exhaustion rather than a problem with the library.*
+*Output per channel across 48 hours. Coverage is dense early and thins towards the
+top of the plot as pores die, which is the normal shape; a band going quiet early, or
+a block of channels never firing, is worth looking into.*
+
+![Read length over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-over-time.png)
 
 **Barcodes and alignment**
 
@@ -88,6 +98,8 @@ mean pore exhaustion rather than a problem with the library.*
 
 A falling `read_qual_over_time`, or `channels_activity` thinning out partway through,
 usually points at pore exhaustion rather than anything wrong with the library.
+
+All example figures come from a 48 hour lambda phage run on a MinION, 975,715 reads, the [EPI2ME Labs basic QC tutorial dataset](https://epi2me.nanoporetech.com/notebooks/Basic_QC_Tutorial.html).
 
 ## PDF report
 
