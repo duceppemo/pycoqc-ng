@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pycoQC.common import mean_qscore, parse_timestamp, start_time_to_elapsed_seconds
+from pycoQC.common import (mean_qscore, mkdir, parse_timestamp, pycoQCError,
+                           start_time_to_elapsed_seconds)
 from conftest import reference_mean_qscore
 
 
@@ -105,3 +106,18 @@ class TestParseTimestamp:
         earlier = parse_timestamp("2022-06-27T23:14:28Z")
         later = parse_timestamp("2022-06-27T23:15:28Z")
         assert (later - earlier).total_seconds() == 60
+
+
+class TestMkdir:
+
+    def test_unwritable_path_raises_pycoqc_error(self):
+        """Regression: this raised NameError, because the handler referred to
+        pycoMethError, a class from a different project."""
+        with pytest.raises(pycoQCError) as excinfo:
+            mkdir("/proc/this/cannot/be/created", exist_ok=True)
+        assert "Error creating output folder" in str(excinfo.value)
+
+    def test_creates_nested_directories(self, tmp_path):
+        target = tmp_path / "a" / "b" / "c"
+        mkdir(str(target), exist_ok=True)
+        assert target.is_dir()

@@ -474,8 +474,10 @@ def mkdir(fn, exist_ok=False):
     """ Create directory recursivelly. Raise IO error if path exist or if error at creation """
     try:
         makedirs(fn, exist_ok=exist_ok)
-    except:
-        raise pycoMethError("Error creating output folder `{}`".format(fn))
+    except OSError as E:
+        # This used to raise pycoMethError, a name from another project that
+        # does not exist here, so the real failure surfaced as a NameError.
+        raise pycoQCError("Error creating output folder `{}`: {}".format(fn, E))
 
 
 def mkbasedir(fn, exist_ok=False):

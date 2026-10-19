@@ -4,11 +4,11 @@ First of all, thanks for considering contributing to `pycoQC`! 👍 It's people 
 
 `pycoQC` is an open source project, maintained by publicly funded academic researchers.
 
-[repo]: https://github.com/a-slide/pycoQC
-[issues]: https://github.com/a-slide/pycoQC/issues
-[new_issue]: https://github.com/a-slide/pycoQC/issues/new
-[email]: aleg@ebi.ac.uk
-[code_of_conduct]: https://github.com/a-slide/pycoQC/blob/master/CODE_OF_CONDUCT.md
+[repo]: https://github.com/duceppemo/pycoqc-ng
+[issues]: https://github.com/duceppemo/pycoqc-ng/issues
+[new_issue]: https://github.com/duceppemo/pycoqc-ng/issues/new
+[email]: https://github.com/duceppemo/pycoqc-ng/issues
+[code_of_conduct]: https://github.com/duceppemo/pycoqc-ng/blob/master/CODE_OF_CONDUCT.md
 
 ## Code of conduct
 
@@ -26,7 +26,7 @@ Using `pycoQC` for a paper you are writing? Please cite it.
 
 ### Ask a question ⁉️
 
-Using `pycoQC` and got stuck? Browse the [documentation][https://a-slide.github.io/pycoQC/] to see if you can find a solution.
+Using `pycoQC` and got stuck? Browse the [documentation][https://github.com/duceppemo/pycoqc-ng#usage] to see if you can find a solution.
 
 Still stuck? Post your question as an [issue on GitHub][new_issue] or you can chat with the developers using our [gitter chat room](https://gitter.im/pycoQC/community?utm_source=share-link&utm_medium=link&utm_campaign=share-link)
 
