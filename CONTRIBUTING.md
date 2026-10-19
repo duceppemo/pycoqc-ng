@@ -8,7 +8,7 @@ First of all, thanks for considering contributing to `pycoQC`! 👍 It's people 
 [issues]: https://github.com/duceppemo/pycoqc-ng/issues
 [new_issue]: https://github.com/duceppemo/pycoqc-ng/issues/new
 [email]: https://github.com/duceppemo/pycoqc-ng/issues
-[code_of_conduct]: https://github.com/duceppemo/pycoqc-ng/blob/master/CODE_OF_CONDUCT.md
+[code_of_conduct]: https://github.com/duceppemo/pycoqc-ng/blob/main/CODE_OF_CONDUCT.md
 
 ## Code of conduct
 
@@ -68,7 +68,7 @@ We try to follow the [GitHub flow](https://guides.github.com/introduction/flow/)
 
 1. Fork [this repo][repo] and clone it to your computer. To learn more about this process, see [this guide](https://guides.github.com/activities/forking/).
 
-2. If you have forked and cloned the project before and it has been a while since you worked on it, [pull changes from the original repo](https://help.github.com/articles/merging-an-upstream-repository-into-your-fork/) to your clone by using `git pull upstream master`.
+2. If you have forked and cloned the project before and it has been a while since you worked on it, [pull changes from the original repo](https://help.github.com/articles/merging-an-upstream-repository-into-your-fork/) to your clone by using `git pull upstream main`.
 
 3. Make your changes and test the modified code.
 

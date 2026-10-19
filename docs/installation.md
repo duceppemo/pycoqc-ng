@@ -63,7 +63,7 @@ conda install -c aleg_dev -c anaconda -c bioconda -c conda-forge pycoqc=[VERSION
 
 ## Option 3: Installation with pip from GitHub
 
-To get the last stable (master) or bleeding edge (dev) version
+To get the last stable (main) or bleeding edge (dev) version
 
 ```bash
 # First installation

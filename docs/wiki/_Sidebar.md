@@ -8,4 +8,4 @@
 - [FAQ](FAQ)
 - [Development](Development)
 
-[Releases](https://github.com/duceppemo/pycoqc-ng/releases) · [Changelog](https://github.com/duceppemo/pycoqc-ng/blob/master/CHANGELOG.md) · [Issues](https://github.com/duceppemo/pycoqc-ng/issues)
+[Releases](https://github.com/duceppemo/pycoqc-ng/releases) · [Changelog](https://github.com/duceppemo/pycoqc-ng/blob/main/CHANGELOG.md) · [Issues](https://github.com/duceppemo/pycoqc-ng/issues)

@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/duceppemo/pycoqc-ng/master/docs/images/pycoqc-ng-logo.svg" alt="pycoqc-ng" width="680">
+  <img src="https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/pycoqc-ng-logo.svg" alt="pycoqc-ng" width="680">
 </p>
 
 <p align="center">
   <a href="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml"><img src="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/duceppemo/pycoqc-ng"><img src="https://codecov.io/gh/duceppemo/pycoqc-ng/branch/master/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://codecov.io/gh/duceppemo/pycoqc-ng"><img src="https://codecov.io/gh/duceppemo/pycoqc-ng/branch/main/graph/badge.svg" alt="Coverage"></a>
   <a href="https://github.com/duceppemo/pycoqc-ng/releases/latest"><img src="https://img.shields.io/github/v/release/duceppemo/pycoqc-ng?label=release&cacheSeconds=3600" alt="Latest release"></a>
   <a href="https://anaconda.org/bioconda/pycoqc-ng"><img src="https://img.shields.io/conda/vn/bioconda/pycoqc-ng?label=bioconda" alt="Bioconda"></a>
   <a href="https://pypi.org/project/pycoqc-ng/"><img src="https://img.shields.io/pypi/v/pycoqc-ng?label=pypi" alt="PyPI"></a>
   <img src="https://img.shields.io/pypi/pyversions/pycoqc-ng" alt="Python versions">
-  <a href="https://github.com/duceppemo/pycoqc-ng/blob/master/LICENSE"><img src="https://img.shields.io/github/license/duceppemo/pycoqc-ng" alt="License: GPLv3"></a>
+  <a href="https://github.com/duceppemo/pycoqc-ng/blob/main/LICENSE"><img src="https://img.shields.io/github/license/duceppemo/pycoqc-ng" alt="License: GPLv3"></a>
   <a href="https://github.com/duceppemo/pycoqc-ng/wiki"><img src="https://img.shields.io/badge/docs-wiki-informational" alt="Documentation"></a>
   <a href="https://doi.org/10.5281/zenodo.23484147"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.23484147.svg" alt="DOI"></a>
 </p>

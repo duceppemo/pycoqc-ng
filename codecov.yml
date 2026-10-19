@@ -1,9 +1,7 @@
 # https://docs.codecov.com/docs/codecovyml-reference
 
 codecov:
-  # This repository's default branch is master, inherited from the fork.
-  # Without this Codecov assumes main and the badge reports "unknown".
-  branch: master
+  branch: main
 
 coverage:
   status:
