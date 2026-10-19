@@ -270,3 +270,64 @@ def pod5_barcoded_dir(tmp_path_factory):
     _write_pod5(d / "FAW88668_pass_unclassified_1ec22c6e_2.pod5",
                 n_reads=10, seed=2, id_offset=2000)
     return d
+
+
+@pytest.fixture(scope="session")
+def aligned_bam(tmp_path_factory):
+    """A coordinate-sorted, indexed BAM aligned to a small reference.
+
+    pycoQC requires both the index and the sort order before it will read an
+    alignment file, and uses NM to derive identity.
+    """
+    pysam = pytest.importorskip("pysam")
+    import random
+
+    d = tmp_path_factory.mktemp("bam_aligned")
+    unsorted = d / "unsorted.bam"
+    final = d / "aligned.bam"
+
+    ref_len = 50000
+    header = {"HD": {"VN": "1.6", "SO": "unknown"},
+              "SQ": [{"SN": "chr1", "LN": ref_len}]}
+
+    rng = random.Random(4)
+    records = []
+    for i in range(600):
+        length = rng.randint(200, 2000)
+        start = rng.randint(0, ref_len - length - 1)
+        rec = pysam.AlignedSegment()
+        rec.query_name = f"r{i:05d}"
+        rec.query_sequence = "".join(rng.choice("ACGT") for _ in range(length))
+        rec.query_qualities = pysam.qualitystring_to_array("I" * length)
+        rec.flag = 0
+        rec.reference_id = 0
+        rec.reference_start = start
+        rec.mapping_quality = 60
+        rec.cigartuples = [(0, length)]
+        # NM drives the identity frequency calculation.
+        rec.set_tag("NM", rng.randint(0, length // 10), "i")
+        records.append(rec)
+
+    # A few reads that are not primary alignments, which are counted
+    # separately rather than contributing statistics.
+    for i, (flag, name) in enumerate([(4, "unmapped1"), (256, "secondary1"),
+                                      (2048, "supplementary1")]):
+        rec = pysam.AlignedSegment()
+        rec.query_name = name
+        rec.query_sequence = "ACGT" * 50
+        rec.query_qualities = pysam.qualitystring_to_array("I" * 200)
+        rec.flag = flag
+        if flag != 4:
+            rec.reference_id = 0
+            rec.reference_start = 100 * (i + 1)
+            rec.cigartuples = [(0, 200)]
+            rec.set_tag("NM", 5, "i")
+        records.append(rec)
+
+    with pysam.AlignmentFile(str(unsorted), "wb", header=header) as bam:
+        for rec in records:
+            bam.write(rec)
+
+    pysam.sort("-o", str(final), str(unsorted))
+    pysam.index(str(final))
+    return final

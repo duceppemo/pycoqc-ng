@@ -173,7 +173,10 @@ class pycoQC_parse():
                 df = df.rename(columns={"read_ID": "read_id", "barcode_call": "barcode"})
 
             df = df[["read_id", "barcode"]]
-            df['barcode'].replace("none", "unclassified", inplace=True)
+            # Assign the result back: an inplace call on a single column
+            # operates on a temporary copy under copy-on-write and silently
+            # leaves the frame unchanged, so "none" stayed a barcode name.
+            df['barcode'] = df['barcode'].replace("none", "unclassified")
 
             n = len(df[df['barcode'] != "unclassified"])
             self.logger.debug("\t\t{:,} reads with barcodes assigned".format(n))
@@ -239,7 +242,9 @@ class pycoQC_parse():
         # Merge df and fill in missing barcode values
         if not barcode_reads_df.empty:
             df = pd.merge(df, barcode_reads_df, on="read_id", how="left")
-            df['barcode'].fillna('unclassified', inplace=True)
+            # Same here: reads absent from the barcode file kept a missing
+            # barcode instead of being marked unclassified.
+            df['barcode'] = df['barcode'].fillna('unclassified')
 
         # Merge df and fill in missing barcode values
         if not bam_reads_df.empty:
