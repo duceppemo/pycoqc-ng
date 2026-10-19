@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pycoQC.common import mean_qscore, start_time_to_elapsed_seconds
+from pycoQC.common import mean_qscore, parse_timestamp, start_time_to_elapsed_seconds
 from conftest import reference_mean_qscore
 
 
@@ -75,3 +75,33 @@ class TestStartTimeToElapsedSeconds:
         assert result.dtype == np.dtype("float64")
         assert result.iloc[0] == 0.0
         assert math.isnan(result.iloc[1])
+
+
+class TestParseTimestamp:
+
+    @pytest.mark.parametrize("value", [
+        "2022-06-27T23:14:28Z",
+        "2021-03-29T15:18:10.066+00:00",
+        "2022-06-27T23:14:28",
+        "2022-06-27T23:14:28.123456Z",
+        "2021-03-29T15:18:10.066-04:00",
+    ])
+    def test_agrees_with_dateutil(self, value):
+        """The fast path must not change how timestamps are interpreted."""
+        from dateutil.parser import parse as dateutil_parse
+        assert parse_timestamp(value) == dateutil_parse(value)
+
+    def test_utc_designator_is_an_offset_not_a_naive_time(self):
+        parsed = parse_timestamp("2022-06-27T23:14:28Z")
+        assert parsed.utcoffset().total_seconds() == 0
+
+    def test_falls_back_for_non_iso_formats(self):
+        """Unusual basecaller output still has to parse."""
+        from dateutil.parser import parse as dateutil_parse
+        value = "27 June 2022 23:14:28"
+        assert parse_timestamp(value) == dateutil_parse(value)
+
+    def test_ordering_is_preserved(self):
+        earlier = parse_timestamp("2022-06-27T23:14:28Z")
+        later = parse_timestamp("2022-06-27T23:15:28Z")
+        assert (later - earlier).total_seconds() == 60

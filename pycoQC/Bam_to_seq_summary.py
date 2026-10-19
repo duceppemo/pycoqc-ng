@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Third party imports
 from tqdm import tqdm
-from dateutil.parser import parse
 import pysam
 
 # Local imports
@@ -168,7 +167,7 @@ class Bam_to_seq_summary():
                 length = bam_entry.query_length
                 qual = bam_entry.query_qualities
 
-                time_string = parse(bam_dict['st'])
+                time_string = parse_timestamp(bam_dict['st'])
                 channel = bam_dict['ch']
                 try:
                     barcode = bam_dict['BC']

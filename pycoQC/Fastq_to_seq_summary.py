@@ -18,7 +18,6 @@ import gzip
 
 # Third party imports
 from tqdm import tqdm
-from dateutil.parser import parse
 
 # Local imports
 from pycoQC.common import *
@@ -83,7 +82,7 @@ class FastqParser(object):
         except KeyError:
             run_id = ''
         try:
-            time_string = parse(read_dict['start_time'])
+            time_string = parse_timestamp(read_dict['start_time'])
         except KeyError:
             time_string = ''
         try:
@@ -142,17 +141,11 @@ class FastqParser(object):
         # Chunk fastq files and run chunks in parallel
         fastq_dict = dict()
         with gzip.open(input_fastq, "rt") if input_fastq.endswith('.gz') else open(input_fastq, "r") as f:
-            pool = mp.Pool(int(cpu))
-            jobs = [pool.apply_async(FastqParser.read_entry, [chunk, fastq_name, flag])
-                    for chunk in FastqParser.make_chunks(f, 4000)]
-            results = [j.get() for j in jobs]
-            pool.close()
-            pool.join()
-            pool.terminate()  # Needed to do proper garbage collection?
-
-            # Update self.sample_dict with results from every chunk
-            for d in results:
-                fastq_dict.update(d)  # Do the merge
+            with mp.Pool(int(cpu)) as pool:
+                jobs = [pool.apply_async(FastqParser.read_entry, [chunk, fastq_name, flag])
+                        for chunk in FastqParser.make_chunks(f, 4000)]
+                for job in jobs:
+                    fastq_dict.update(job.get())  # Do the merge
 
         return fastq_dict
 
@@ -293,14 +286,14 @@ class Fastq_to_seq_summary():
             # Parse fastq file(s)
             for fastq_fn in iter(in_q.get, None):
                 # Try to extract data from the fastq file
-                value_dict = FastqParser.iterate_fastq_parallel(fastq_fn, self.threads)  # Field value
-
                 # Fetch required fields is available
                 """
                 "read_id", "run_id", "channel", "start_time",
                 "sequence_length_template", "mean_qscore_template", "gc_percent"
                 "calibration_strand_genome_template", "barcode_arrangement"
                 """
+                value_dict = FastqParser.iterate_fastq_parallel(fastq_fn, self.threads)  # Field value
+
                 for read_id, read_info_dict in value_dict.items():
                     # A fresh dict per read: the queue serialises entries in a
                     # background thread, so a shared dict would be mutated
@@ -319,9 +312,9 @@ class Fastq_to_seq_summary():
                     # Put read data in queue
                     if d:
                         out_q.put(d)
-                        c["overall"]["valid files"] += 1
+                        c["overall"]["valid reads"] += 1
                     else:
-                        c["overall"]["invalid files"] += 1
+                        c["overall"]["invalid reads"] += 1
 
             # Put counter in counter queue
             counter_q.put(c)

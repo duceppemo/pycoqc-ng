@@ -1612,30 +1612,30 @@ class pycoQC_plot():
         else:
             df = self.all_sample_df
 
-        data = df[field_name].dropna().values
+        # Drop rows missing either value together, so that each value stays
+        # paired with its own start time. Dropping only the value column left
+        # the two arrays different lengths, and zip() then silently paired
+        # every value with the wrong time.
+        subset = df[["start_time", field_name]].dropna()
+        data = subset[field_name].to_numpy()
 
         try:
             # Bin data in categories
-            t = (df["start_time"] / 3600).values
+            t = (subset["start_time"] / 3600).to_numpy()
             x = np.linspace(t.min(), t.max(), num=time_bins)
-            t = np.digitize(t, bins=x, right=True)
+            bin_idx = np.digitize(t, bins=x, right=True)
 
-            # List quality value per categories
-            bin_dict = defaultdict(list)
-            for bin_idx, val in zip(t, data):
-                my_bin = x[bin_idx]
-                bin_dict[my_bin].append(val)
-
-            # Aggregate values per category
+            # Aggregate values per category. Grouping in pandas avoids building
+            # one Python list per bin and keeps the percentiles vectorised.
             val_name = ["Min", "Max", "25%", "75%", "Median"]
-            stat_dict = defaultdict(list)
-            for my_bin in x:
-                if my_bin in bin_dict:
-                    p = np.percentile(bin_dict[my_bin], [0, 100, 25, 75, 50])
-                else:
-                    p = [np.nan, np.nan, np.nan, np.nan, np.nan]
-                for val, stat in zip(val_name, p):
-                    stat_dict[val].append(stat)
+            quantiles = [0.0, 1.0, 0.25, 0.75, 0.5]
+            grouped = (pd.Series(data)
+                       .groupby(bin_idx)
+                       .quantile(quantiles)
+                       .unstack()
+                       .reindex(np.arange(x.size)))
+            stat_dict = {name: grouped[q].to_numpy()
+                         for name, q in zip(val_name, quantiles)}
 
             # Values smoothing
             if smooth_sigma:
@@ -2077,11 +2077,10 @@ class pycoQC_plot():
         steps = self.total_ref_len // nbins
         mean_cov = round(df["align_len"].sum() / self.total_ref_len, 2)
 
-        # Compute coverage by interval
-        l = []
-        for line in df.itertuples():
-            l.append(int(ref_offset_dict[line.ref_id] + line.ref_start))
-        l = np.array(l)
+        # Compute coverage by interval. Mapping the offsets in pandas is much
+        # faster than walking the rows with itertuples.
+        l = (df["ref_id"].map(ref_offset_dict).to_numpy()
+             + df["ref_start"].to_numpy()).astype(np.int64)
         bins = np.arange(0, self.total_ref_len, steps)
         l = np.digitize(l, bins)
         y = np.bincount(l, weights=df["align_len"]) / steps
