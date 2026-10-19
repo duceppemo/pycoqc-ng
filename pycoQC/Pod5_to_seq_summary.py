@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import pod5 as p5
 from tqdm import tqdm
-import numpy as np
 
 # Local imports
 from pycoQC.common import pycoQCError, recursive_file_gen
@@ -192,16 +191,18 @@ class Pod5_to_seq_summary():
         # Convert dictionary to dataframe
         df = pd.DataFrame.from_dict(pod5_dict, orient='index')
         df.index.names = ['read_id']
-        # #TODO: pycoQC.common.pycoQCError: No valid read left after NA values filtering
-        # # Beccause 'read_len' and 'mean_qscore' columns are empty
-        # df['read_len'] = ''  # required_colnames from pycoQC
-        # df['mean_qscore'] = ''  # required_colnames from pycoQC
-        # df.insert(len(df.columns), 'read_len', '1000')
-        # df.insert(len(df.columns), 'mean_qscore', '10')
-        len_series = np.random.normal(1000, 15000, df.shape[0])
-        df['read_len'] = len_series.round()
-        qscore_series = np.random.normal(12, 2, df.shape[0])
-        df['mean_qscore'] = qscore_series.round(2)
-        # df.insert(len(df.columns), 'passes_filtering', 'TRUE')
 
+        # A POD5 file holds raw signal, not basecalls, so there is no read
+        # length and no quality score to report. Earlier versions filled those
+        # two columns with values drawn from np.random.normal to get past
+        # pycoQC's requirement that they be present, which meant every length
+        # and quality figure in a report built from POD5 was invented, down to
+        # negative read lengths. Only the fields POD5 actually carries are
+        # written now.
         df.to_csv(output_file, sep="\t", index=True, header=True)
+
+        logger.warning(
+            "POD5 holds raw signal only, so this summary has no read length "
+            "or quality columns and pycoQC cannot build a report from it. "
+            "Basecall first, then use Bam_to_seq_summary or "
+            "Fastq_to_seq_summary.")

@@ -128,24 +128,59 @@ class Bam_to_seq_summary():
         return bam_list
 
     @staticmethod
+    def parse_read_groups(header):
+        """Map each @RG ID to the run metadata it carries
+
+        A barcoded run has one read group per barcode, so each read is looked
+        up by its own RG rather than assuming one group for the whole file.
+        Every field is optional: a BAM from another tool may carry none of
+        them, and missing values should leave a blank column rather than
+        stopping the run.
+
+        * header
+            A pysam AlignmentHeader.
+        """
+        groups = dict()
+        for rg in header.to_dict().get("RG", []):
+            rg_id = rg.get("ID", "")
+            # DS is a space separated list of key=value pairs, so read it by
+            # name. Taking the first pair put the run id in the model column,
+            # since Oxford Nanopore list runid before basecall_model.
+            ds = dict()
+            for part in rg.get("DS", "").split():
+                key, sep, value = part.partition("=")
+                if sep:
+                    ds[key] = value
+            groups[rg_id] = {
+                "run_id": ds.get("runid") or rg_id.split("_")[0],
+                "flowcell_id": rg.get("PU", ""),
+                "device_id": rg.get("PM", ""),
+                "dorado_model": ds.get("basecall_model", ""),
+                # Dorado writes the barcode as a BC tag on the read, while the
+                # Oxford Nanopore output spec puts it on the read group as SM,
+                # with al holding the sample-sheet alias.
+                "barcode": rg.get("SM") or rg.get("al") or "",
+                "sample_id": rg.get("LB", ""),
+            }
+        return groups
+
+    @staticmethod
     def read_bam(bam_file):
 
-        logger.debug("[WORKER] Start processing pod5 files")
+        logger.debug("[WORKER] Start processing bam files")
 
         entry_dict = dict()
 
         with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as fh:
+            # Read groups are a property of the file, so parse them once
+            # rather than re-parsing the header text for every read.
+            read_groups = Bam_to_seq_summary.parse_read_groups(fh.header)
+            blank_group = {"run_id": "", "flowcell_id": "", "device_id": "",
+                           "dorado_model": "", "barcode": "", "sample_id": ""}
+
             for bam_entry in fh.fetch(until_eof=True):
                 bam_dict = dict()
                 read_id = bam_entry.query_name
-                header = str(bam_entry.header)
-                for line in header.split("\n"):
-                    if line.startswith("@RG"):
-                        field_list = line.split("\t")
-                        run_id = [i for i in field_list if i.startswith('ID:')][0].split('_')[0].split(':')[1]
-                        flowcell = [i for i in field_list if i.startswith('PU:')][0].split(':')[1]
-                        sequencer = [i for i in field_list if i.startswith('PM:')][0].split(':')[1]
-                        model = [i for i in field_list if i.startswith('DS:')][0].split()[0].split('=')[1]
 
                 tags = bam_entry.tags  # List of tuples
                 """
@@ -165,7 +200,7 @@ class Bam_to_seq_summary():
                 dx:i:0  # 
                 RG:Z:e2419f1214664b2b48a1f01eebf8dfa6f28fb57a_dna_r9.4.1_e8_sup@v3.3  # <runid>_<basecalling_model>
                 """
-                tags_of_interest = ['BC', 'qs', 'du', 'ch', 'st', 'rn', 'fn']
+                tags_of_interest = ['BC', 'qs', 'du', 'ch', 'st', 'rn', 'fn', 'RG']
                 for tag_tuple in tags:
                     tag, value = tag_tuple
                     if tag in tags_of_interest:
@@ -174,18 +209,32 @@ class Bam_to_seq_summary():
                 length = bam_entry.query_length
                 qual = bam_entry.query_qualities
 
-                time_string = parse_timestamp(bam_dict['st'])
-                channel = bam_dict['ch']
-                try:
-                    barcode = bam_dict['BC']
-                except KeyError:
-                    barcode = 'none'
-                file_name = bam_dict['fn']
+                group = read_groups.get(bam_dict.get('RG', ''), blank_group)
+                run_id = group["run_id"]
+                flowcell = group["flowcell_id"]
+                sequencer = group["device_id"]
+                model = group["dorado_model"]
+
+                # st and ch are required by the spec but a BAM from another
+                # tool may lack them, and a missing value should not stop the
+                # whole run.
+                start_time = bam_dict.get('st')
+                time_string = parse_timestamp(start_time) if start_time else ''
+                channel = bam_dict.get('ch', '')
+
+                # Dorado writes a BC tag; MinKNOW puts the barcode on the read
+                # group instead.
+                barcode = bam_dict.get('BC') or group["barcode"] or 'none'
+
+                # fn is a Dorado extension holding the source file name and is
+                # absent from the Oxford Nanopore output spec, so fall back to
+                # the path of the BAM itself, which carries pass or fail in the
+                # directory name the basecaller writes.
+                file_name = bam_dict.get('fn') or os.path.basename(bam_file)
+                location = file_name if bam_dict.get('fn') else bam_file
 
                 # Flag
-                if 'pass' in file_name:
-                    flag = 'TRUE'
-                elif 'fail' in file_name:
+                if 'fail' in location:
                     flag = 'FALSE'
                 else:
                     flag = 'TRUE'

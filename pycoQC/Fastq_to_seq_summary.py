@@ -85,47 +85,69 @@ class FastqParser(object):
         return my_dict
 
     @staticmethod
-    def single_fastq_entry_to_dict(fastq_entry, flag):
-        """
-        Fields in fastq header from Guppy:
+    def parse_header_fields(items):
+        """Read the metadata attached to a fastq header into a dict
 
-        @20a271c3-8f4b-466c-92b8-50a469aaa3e4
-        runid=acfd15dcc73bb7bafd19e1fdbe72a535d7558bf1
-        sampleid=run3_no_enrichment
-        read=2743
-        ch=207
-        start_time=2022-06-27T23:14:28Z
-        model_version_id=2021-11-17_dna_r10.4_minion_promethion_1024_67af0493
-        barcode=barcode17
+        Two dialects are in use and both appear in the wild:
+
+        * Guppy and older MinKNOW write `key=value`::
+
+              @20a271c3-8f4b runid=acfd15dc sampleid=run3 read=2743 ch=207
+              start_time=2022-06-27T23:14:28Z barcode=barcode17
+
+        * Dorado and current MinKNOW write SAM style `attr:type:value`, which
+          may be separated by spaces or tabs::
+
+              @bd8655fb-383c RG:Z:e4994c62_dna_r10.4.1_sup@v5.0.0 ch:i:123
+              st:Z:2025-01-06T10:06:36.778368+00:00 du:f:1.23 qs:f:12.5
+
+        Unrecognised items are ignored rather than raising, so an unexpected
+        field cannot stop a file being parsed.
+
+        * items
+            The whitespace-separated pieces of the header, excluding the read id.
         """
+        fields = dict()
+        for item in items:
+            # A SAM style tag is two letters, a one letter type and a value.
+            # Check it before `=`, since a value may itself contain one.
+            tag, sep, rest = item.partition(':')
+            if sep and len(tag) == 2:
+                tag_type, sep, value = rest.partition(':')
+                if sep and len(tag_type) == 1:
+                    fields[tag] = value
+                    continue
+            key, sep, value = item.partition('=')
+            if sep:
+                fields[key] = value
+        return fields
+
+    @staticmethod
+    def single_fastq_entry_to_dict(fastq_entry, flag):
+        """Turn one fastq record into {read_id: fields}"""
 
         header, seq, extra, qual = fastq_entry  # get each component of list in a variable
 
         # Split header line to get items and store in dictionary
         items = header.split()
-        read_dict = dict()
-        for i in items[1:]:
-            key, value = i.split('=')
-            read_dict[key] = value
+        read_dict = FastqParser.parse_header_fields(items[1:])
 
-        # Some fields will be absent if fastq not generated Guppy, thus the use of try/except statements
-        # Get the values of interest into the dictionary
-        try:
-            run_id = read_dict['runid']
-        except KeyError:
-            run_id = ''
-        try:
-            time_string = parse_timestamp(read_dict['start_time'])
-        except KeyError:
-            time_string = ''
-        try:
-            channel = read_dict['ch']
-        except KeyError:
-            channel = ''
-        try:
-            barcode = read_dict['barcode']
-        except KeyError:
-            barcode = ''
+        # Fields are read under either dialect's name, and anything missing is
+        # left blank rather than failing: a plain fastq carries none of them.
+        # Dorado has no run id tag, but its read group starts with one.
+        run_id = read_dict.get('runid', '')
+        if not run_id and 'RG' in read_dict:
+            run_id = read_dict['RG'].split('_')[0]
+
+        start_time = read_dict.get('start_time') or read_dict.get('st')
+        time_string = parse_timestamp(start_time) if start_time else ''
+
+        channel = read_dict.get('ch', '')
+
+        # Guppy names the barcode, Dorado uses SM with al as the alias, and
+        # some versions write BC.
+        barcode = (read_dict.get('barcode') or read_dict.get('SM')
+                   or read_dict.get('BC') or read_dict.get('al') or '')
 
         # The following values are always present in any given fastq
         read_id = items[0][1:]  # remove the leading "@"
