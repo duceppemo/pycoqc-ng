@@ -15,7 +15,6 @@ import traceback
 import logging
 
 # Third party imports
-import numpy as np
 import pandas as pd
 import h5py
 from tqdm import tqdm
@@ -167,17 +166,23 @@ class Fast5_to_seq_summary ():
         """
         logger.debug("[READER] Start listing fast5 files")
         try:
-            # Load an input queue with fast5 file path
-            for i, fast5_fn in enumerate(recursive_file_gen(dir=self.fast5_dir, ext="fast5")):
-                if self.max_fast5 and i == self.max_fast5:
-                    break
+            # Load an input queue with fast5 file path. The count is kept
+            # separately: enumerate is zero based, so testing it against 0
+            # reported "no files found" for a directory holding exactly one
+            # file, and left the name unbound when there were none at all,
+            # raising UnboundLocalError instead of the intended error.
+            count = 0
+            for fast5_fn in recursive_file_gen(dir=self.fast5_dir, ext="fast5"):
                 in_q.put(fast5_fn)
+                count += 1
+                if self.max_fast5 and count >= self.max_fast5:
+                    break
 
             # Raise error is no file found
-            if i == 0:
+            if count == 0:
                 raise pycoQCError("No valid fast5 files found in indicated folder")
 
-            logger.debug("[READER] Add a total of {} files to input queue".format(i+1))
+            logger.debug("[READER] Add a total of {} files to input queue".format(count))
 
         # Manage exceptions and deal poison pills
         except Exception:
@@ -241,7 +246,11 @@ class Fast5_to_seq_summary ():
                                     fp=h5_fp,
                                     grp=grp_dict[self.attrs_grp_dict["channel_sampling_rate"]["grp"]],
                                     attrs=self.attrs_grp_dict["channel_sampling_rate"]["attrs"])
-                                if start_time and sampling_rate:
+                                # A legitimate value of zero must not read
+                                # as missing: the first read of a file starts
+                                # at sample 0, and testing truthiness dropped
+                                # it from every summary.
+                                if start_time is not None and sampling_rate:
                                     d[field] = int(start_time/sampling_rate)
                                     c["fields_found"][field] += 1
                                 else:
@@ -252,7 +261,7 @@ class Fast5_to_seq_summary ():
                                     fp=h5_fp,
                                     grp=grp_dict[self.attrs_grp_dict[field]["grp"]],
                                     attrs=self.attrs_grp_dict[field]["attrs"])
-                                if v:
+                                if v is not None:
                                     d[field] = v
                                     c["fields_found"][field] += 1
                                 else:
@@ -325,8 +334,12 @@ class Fast5_to_seq_summary ():
     def _get_h5_attrs(fp, grp, attrs):
         try:
             v = fp[grp].attrs[attrs]
-            # if type(v) == np.bytes_:
-            if v is np.bytes_:
+            # HDF5 stores strings as bytes. This compared the value against
+            # the type object with `is`, which is never true, so every string
+            # field reached the summary as the repr of a bytes object:
+            # b'barcode01' rather than barcode01, and a channel of b'78' that
+            # could not be cast to an integer.
+            if isinstance(v, bytes):
                 v = v.decode("utf8")
             return v
         except KeyError:

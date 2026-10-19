@@ -129,3 +129,71 @@ def barcoded_summary(tmp_path_factory, guppy_summary):
     out = tmp_path_factory.mktemp("barcoded") / "sequencing_summary.txt"
     df.to_csv(out, sep="\t", index=False)
     return out
+
+
+def _write_basecalled_fast5(path, n_reads=30, basecalled=True, seed=7):
+    """A multi-read FAST5 in the layout Guppy wrote with --fast5_out.
+
+    When basecalled is False the Analyses groups are omitted, which is what
+    MinKNOW wrote on its own and what current Guppy and Dorado produce.
+    """
+    h5py = pytest.importorskip("h5py")
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    run_id = "acfd15dcc73bb7bafd19e1fdbe72a535d7558bf1"
+
+    with h5py.File(path, "w") as fh:
+        fh.attrs["file_type"] = np.bytes_("multi-read")
+        fh.attrs["file_version"] = np.bytes_("2.0")
+        for i in range(n_reads):
+            read_id = f"{i:08x}-b178-468d-ab62-af921129c079"
+            grp = fh.create_group(f"read_{read_id}")
+
+            raw = grp.create_group("Raw")
+            raw.attrs["read_id"] = np.bytes_(read_id)
+            raw.attrs["start_time"] = np.uint64(i * 400000)
+            raw.attrs["duration"] = np.uint32(rng.integers(5000, 50000))
+            raw.attrs["read_number"] = np.int32(i)
+            raw.attrs["start_mux"] = np.uint8(1)
+
+            channel = grp.create_group("channel_id")
+            channel.attrs["channel_number"] = np.bytes_(str((i * 7) % 512 + 1))
+            channel.attrs["digitisation"] = np.float64(8192.0)
+            channel.attrs["offset"] = np.float64(-243.0)
+            channel.attrs["range"] = np.float64(1500.0)
+            channel.attrs["sampling_rate"] = np.float64(4000.0)
+
+            tracking = grp.create_group("tracking_id")
+            tracking.attrs["run_id"] = np.bytes_(run_id)
+            tracking.attrs["sample_id"] = np.bytes_("test_sample")
+            tracking.attrs["device_id"] = np.bytes_("MN23126")
+            tracking.attrs["flow_cell_id"] = np.bytes_("FAH77625")
+
+            if basecalled:
+                summary = grp.create_group(
+                    "Analyses/Basecall_1D_000/Summary/basecall_1d_template")
+                summary.attrs["mean_qscore"] = np.float64(
+                    round(float(rng.uniform(6, 16)), 3))
+                summary.attrs["sequence_length"] = np.int64(
+                    int(rng.integers(300, 9000)))
+                barcoding = grp.create_group(
+                    "Analyses/Barcoding_000/Summary/barcoding")
+                barcoding.attrs["barcode_arrangement"] = np.bytes_(
+                    f"barcode{i % 4 + 1:02d}")
+    return path
+
+
+@pytest.fixture(scope="session")
+def basecalled_fast5_dir(tmp_path_factory):
+    """One FAST5 carrying basecalls, as Guppy --fast5_out produced."""
+    d = tmp_path_factory.mktemp("fast5_basecalled")
+    _write_basecalled_fast5(d / "batch0.fast5")
+    return d
+
+
+@pytest.fixture(scope="session")
+def raw_fast5_dir(tmp_path_factory):
+    """A FAST5 with raw signal only, with no basecalls written back."""
+    d = tmp_path_factory.mktemp("fast5_raw")
+    _write_basecalled_fast5(d / "batch0.fast5", basecalled=False)
+    return d

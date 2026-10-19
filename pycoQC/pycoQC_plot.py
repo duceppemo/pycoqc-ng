@@ -1316,9 +1316,13 @@ class pycoQC_plot():
             y_cum = np.cumsum(y)
             y_cum_max = y_cum[-1]
 
-            # Smooth and rescale interval trace
+            # Smooth and rescale interval trace. A read set small enough
+            # that smoothing flattens every bin to zero leaves nothing to
+            # rescale against, so the trace is left as it is.
             y = gaussian_filter1d(y, sigma=1)
-            y = y * y_cum_max / y.max()
+            y_max = y.max() if y.size else 0
+            if y_max:
+                y = y * y_cum_max / y_max
 
             # Find percentages of data generated
             lab_text = []
