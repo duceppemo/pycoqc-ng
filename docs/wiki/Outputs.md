@@ -1,0 +1,122 @@
+# Outputs
+
+## HTML report
+
+`-o/--html_outfile` writes one self-contained file. Every plot and the plotly runtime
+are embedded, so it opens offline and can be emailed as-is. Expect a few MB; a run with
+many barcodes can reach tens of MB.
+
+Plots are interactive: hover for values, drag to zoom, double-click to reset, and use
+the legend to toggle series. Most plots carry **All / Pass / Fail** buttons to switch
+between read sets, where *pass* means at or above `--min_pass_qual` and at least
+`--min_pass_len`.
+
+### Plot catalogue
+
+Which plots appear depends on the columns available. Alignment plots need `-a`, barcode
+plots need barcode information, and %GC plots need a summary built from FASTQ or BAM.
+
+**Summary tables**
+
+| Plot | Shows |
+|---|---|
+| `run_summary` | Run identifiers, read and base counts, run duration |
+| `basecall_summary` | Reads, bases, median length, N50, median quality |
+| `basecall_summary_per_barcode` | The same, per barcode |
+| `alignment_summary` | Alignment counts and rates (needs `-a`) |
+
+**Distributions**
+
+| Plot | Shows |
+|---|---|
+| `read_len_1D` | Basecalled read length |
+| `read_qual_1D` | Mean PHRED quality per read |
+| `align_len_1D` | Aligned read length |
+| `identity_freq_1D` | Alignment identity |
+| `length_boxplot_per_barcode` | Read length per barcode |
+| `gc_boxplot_per_barcode` | %GC per barcode |
+
+**Two-dimensional**
+
+| Plot | Shows |
+|---|---|
+| `read_len_read_qual_2D` | Length against quality |
+| `read_len_read_gc_2D` | Length against %GC |
+| `read_len_align_len_2D` | Basecalled against aligned length |
+| `align_len_identity_freq_2D` | Aligned length against identity |
+| `read_qual_identity_freq_2D` | Quality against identity |
+
+**Over run time**
+
+| Plot | Shows |
+|---|---|
+| `output_over_time` | Cumulative reads and bases |
+| `read_len_over_time` | Median length and quartiles over time |
+| `read_qual_over_time` | Median quality and quartiles over time |
+| `read_gc_over_time` | %GC over time |
+| `align_len_over_time` | Aligned length over time |
+| `identity_freq_over_time` | Identity over time |
+| `channels_activity` | Per-channel activity heatmap |
+
+**Barcodes and alignment**
+
+| Plot | Shows |
+|---|---|
+| `barcode_counts` | Reads per barcode |
+| `alignment_reads_status` | Aligned, unaligned and secondary counts |
+| `alignment_rate` | Fraction of bases aligned |
+| `alignment_coverage` | Coverage along the reference |
+
+A falling `read_qual_over_time`, or `channels_activity` thinning out partway through,
+usually points at pore exhaustion rather than anything wrong with the library.
+
+## JSON summary
+
+`-j/--json_outfile` writes the same statistics in machine-readable form, for pipelines
+and MultiQC-style aggregation. Computed on **all** reads, not the plotting sample.
+
+```json
+{
+  "pycoqc": { "version": "3.0.0" },
+  "All Reads": {
+    "run": { ... },
+    "basecall": {
+      "reads_number": 3999,
+      "bases_number": 5690011,
+      "N50": 1959,
+      ...
+    }
+  },
+  "Pass Reads": { ... }
+}
+```
+
+Top-level keys are `pycoqc`, `All Reads` and `Pass Reads`; an `alignment` section is
+added under each when `-a` is given. Reading a couple of fields:
+
+```python
+import json
+
+with open("pycoQC_report.json") as fh:
+    report = json.load(fh)
+
+basecall = report["All Reads"]["basecall"]
+print(basecall["reads_number"], basecall["N50"])
+```
+
+### N50
+
+The length at which half the sequenced bases sit in reads of that length or longer.
+Computed over every read, not the sample, so it is stable across `--sample` settings.
+
+## Barcode_split output
+
+One `sequencing_summary_<barcode>.txt` per barcode in the output directory. Barcode
+columns are dropped, since the filename carries that information. Unclassified reads
+are skipped unless `-u` is given, and barcodes below `-p` are skipped too. Each file is
+a valid summary, so it can be fed straight back into `pycoQC`:
+
+```bash
+Barcode_split -f sequencing_summary.txt -o split/
+pycoQC -f split/sequencing_summary_barcode01.txt -o barcode01.html
+```

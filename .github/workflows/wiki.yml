@@ -1,0 +1,45 @@
+name: Publish wiki
+
+# The wiki is maintained in docs/wiki/ in this repository and pushed to the
+# GitHub wiki from here, so the wiki itself is never edited directly: an edit
+# made there would be overwritten by the next sync.
+
+on:
+  push:
+    branches: [master]
+    paths: ["docs/wiki/**", ".github/workflows/wiki.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the wiki repository
+        # The wiki repository exists only once a first page has been created
+        # through the web UI.
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+
+      - name: Copy pages
+        run: rsync -a --delete --exclude .git docs/wiki/ wiki/
+
+      - name: Commit and push
+        working-directory: wiki
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "Wiki already up to date"; exit 0; fi
+          git commit -m "Sync from docs/wiki @ ${{ github.sha }}"
+          git push

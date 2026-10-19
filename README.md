@@ -1,11 +1,14 @@
-# pycoqc-ng
+<p align="center">
+  <img src="https://raw.githubusercontent.com/duceppemo/pycoqc-ng/master/docs/images/pycoqc-ng-logo.svg" alt="pycoqc-ng" width="680">
+</p>
 
-**Interactive QC metrics and plots for Oxford Nanopore sequencing data**
-
-[![CI](https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/pycoqc-ng.svg)](https://pypi.org/project/pycoqc-ng/)
-[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Python](https://img.shields.io/pypi/pyversions/pycoqc-ng.svg)](https://pypi.org/project/pycoqc-ng/)
+<p align="center">
+  <a href="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml"><img src="https://github.com/duceppemo/pycoqc-ng/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/duceppemo/pycoqc-ng/releases/latest"><img src="https://img.shields.io/github/v/release/duceppemo/pycoqc-ng?label=release&cacheSeconds=3600" alt="Latest release"></a>
+  <img src="https://img.shields.io/pypi/pyversions/pycoqc-ng" alt="Python versions">
+  <a href="https://github.com/duceppemo/pycoqc-ng/blob/master/LICENSE"><img src="https://img.shields.io/github/license/duceppemo/pycoqc-ng" alt="License: GPLv3"></a>
+  <a href="https://github.com/duceppemo/pycoqc-ng/wiki"><img src="https://img.shields.io/badge/docs-wiki-informational" alt="Documentation"></a>
+</p>
 
 `pycoqc-ng` is a maintained continuation of [pycoQC](https://github.com/a-slide/pycoQC)
 by Adrien Leger and Tommaso Leonardi, which is no longer developed. It keeps the
@@ -98,8 +101,17 @@ pycoQC(summary_file="sequencing_summary.txt",
 
 ## Documentation
 
-The original documentation covers the plots and options in detail, and still
-applies to the shared functionality: https://a-slide.github.io/pycoQC
+Full documentation is in the [wiki](https://github.com/duceppemo/pycoqc-ng/wiki):
+[Installation](https://github.com/duceppemo/pycoqc-ng/wiki/Installation) ·
+[Usage](https://github.com/duceppemo/pycoqc-ng/wiki/Usage) ·
+[Input formats](https://github.com/duceppemo/pycoqc-ng/wiki/Input-formats) ·
+[Outputs](https://github.com/duceppemo/pycoqc-ng/wiki/Outputs) ·
+[Configuration](https://github.com/duceppemo/pycoqc-ng/wiki/Configuration) ·
+[FAQ](https://github.com/duceppemo/pycoqc-ng/wiki/FAQ)
+
+The wiki is maintained in [`docs/wiki/`](docs/wiki) and published by a workflow, so
+send documentation changes as pull requests against those files rather than editing
+the wiki directly.
 
 Example reports built from the bundled test data live in `docs/pycoQC/results/`.
 
