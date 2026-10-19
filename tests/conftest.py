@@ -111,3 +111,21 @@ def guppy_summary():
     if not fn.exists():
         pytest.skip(f"test data not available: {fn}")
     return fn
+
+
+@pytest.fixture(scope="session")
+def barcoded_summary(tmp_path_factory, guppy_summary):
+    """A small sequencing summary carrying barcode assignments.
+
+    Derived from the real summary shipped with the docs so the column schema
+    stays authentic, with barcodes added and some reads left unclassified.
+    """
+    pd = pytest.importorskip("pandas")
+    df = pd.read_csv(guppy_summary, sep="\t").head(400).copy()
+    # Uneven barcode sizes, so the low-frequency cutoff has something to act on.
+    assignments = (["barcode01"] * 200 + ["barcode02"] * 150
+                   + ["barcode03"] * 45 + ["unclassified"] * 5)
+    df["barcode_arrangement"] = assignments[:len(df)]
+    out = tmp_path_factory.mktemp("barcoded") / "sequencing_summary.txt"
+    df.to_csv(out, sep="\t", index=False)
+    return out

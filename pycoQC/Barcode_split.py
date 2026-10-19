@@ -14,7 +14,7 @@ import pandas as pd
 # Local lib import
 from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
-from pycoQC.common import dict_to_str, get_logger, pycoQCError
+from pycoQC.common import dict_to_str, get_logger, mkdir, pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -94,6 +94,11 @@ def barcode_split(
 
     bc = namedtuple("bc", ["Counts", "Write"])
     bc_l = OrderedDict()
+
+    # Writing used to fail with a bare OSError from pandas if the output
+    # directory did not already exist.
+    if output_dir:
+        mkdir(output_dir, exist_ok=True)
 
     logger.warning("Split data per barcode")
     for barcode, barcode_df in df.groupby("barcode"):
