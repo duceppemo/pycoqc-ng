@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use pycoqc-ng, please cite the original pycoQC paper (below under preferred-citation) and, if you wish to reference this specific software version, the Zenodo DOI."
+type: software
+title: "pycoqc-ng: interactive QC metrics and plots for Oxford Nanopore sequencing data"
+abstract: "A maintained continuation of pycoQC, adding Dorado, unaligned BAM, POD5 and FASTQ input with %GC metrics."
+authors:
+  - family-names: Leger
+    given-names: Adrien
+  - family-names: Leonardi
+    given-names: Tommaso
+  - family-names: Duceppe
+    given-names: Marc-Olivier
+version: 3.0.0
+date-released: "2026-10-19"
+doi: 10.5281/zenodo.23484148
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23484147
+    description: "Concept DOI: resolves to the latest version"
+  - type: doi
+    value: 10.5281/zenodo.23484148
+    description: "Version DOI for 3.0.0"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/duceppemo/pycoqc-ng"
+url: "https://github.com/duceppemo/pycoqc-ng"
+keywords:
+  - bioinformatics
+  - nanopore
+  - quality control
+  - sequencing
+  - dorado
+  - pod5
+preferred-citation:
+  type: article
+  title: "pycoQC, interactive quality control for Oxford Nanopore Sequencing"
+  authors:
+    - family-names: Leger
+      given-names: Adrien
+    - family-names: Leonardi
+      given-names: Tommaso
+  journal: "Journal of Open Source Software"
+  year: 2019
+  volume: 4
+  issue: 34
+  start: 1236
+  doi: 10.21105/joss.01236
