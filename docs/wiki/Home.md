@@ -29,14 +29,16 @@ pycoQC -f sequencing_summary.txt -o pycoQC_report.html
 
 ## What you get
 
-A single HTML file you can open in any browser and send to a collaborator. It carries
-every plot inline, so there are no external assets to keep alongside it.
+![How pycoqc-ng turns a basecaller summary into a report](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/workflow.svg)
 
-```
-sequencing_summary.txt ─┐
-barcoding_summary.txt  ─┼─► pycoQC ─┬─► pycoQC_report.html   interactive, self-contained
-alignment.bam          ─┘           └─► pycoQC_report.json   metrics for downstream use
-```
+Only the basecaller's **sequencing summary** is required. A barcoding summary unlocks
+the per-barcode plots and a BAM unlocks the alignment plots; both are optional.
+
+The HTML report is a single file you can open in any browser and send to a
+collaborator, with every plot embedded so there are no external assets to keep
+alongside it. The PDF is the same plots rendered statically, around twenty times
+smaller, for when a few hundred kilobytes matters more than interactivity. The JSON
+carries the same statistics for a pipeline to read.
 
 Reads are split into **pass** and **fail** on quality (and optionally length), and most
 plots can be viewed for either set. See [Outputs](Outputs) for the full plot catalogue.
@@ -45,9 +47,6 @@ plots can be viewed for either set. See [Outputs](Outputs) for the full plot cat
 
 *Read length against quality for a Guppy run. In the report this is interactive: hover
 for values, drag to zoom, and switch between all, pass and fail reads.*
-
-A lighter PDF of the same report can be produced alongside the HTML, see
-[Outputs](Outputs#pdf-report).
 
 ## Where to go next
 

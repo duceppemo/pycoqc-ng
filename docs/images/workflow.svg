@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 278" width="1000" height="278"
+     role="img" aria-label="pycoqc-ng workflow: a basecaller summary, optionally with barcode and alignment files, produces an HTML, PDF or JSON report">
+  <title>pycoqc-ng workflow</title>
+  <style>
+    .card    { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+    .card-in { stroke: #94a3b8; }
+    .card-out{ stroke: #2f8f5b; }
+    .core    { fill: #1d6fb8; stroke: none; }
+    .name    { font-family: "DejaVu Sans Mono", "Menlo", monospace; font-size: 15px; fill: #334155; }
+    .note    { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 12.5px; fill: #64748b; }
+    .corename{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 21px; font-weight: 700; fill: #ffffff; }
+    .corenote{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 12px; fill: #cfe3f7; }
+    .head    { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 12px; font-weight: 700;
+               fill: #94a3b8; letter-spacing: 1.2px; }
+    .wire    { fill: none; stroke: #94a3b8; stroke-width: 2; }
+    .wire-out{ fill: none; stroke: #2f8f5b; stroke-width: 2; }
+  </style>
+  <defs>
+    <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="tip-out" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#2f8f5b"/>
+    </marker>
+  </defs>
+
+  <text class="head" x="22" y="30">INPUT</text>
+  <text class="head" x="758" y="30">REPORT</text>
+
+  <!-- Inputs. Only the basecaller summary is required; the other two unlock
+       the barcode and alignment plots. -->
+  <g>
+    <rect class="card card-in" x="20" y="46"  width="258" height="56" rx="9"/>
+    <text class="name" x="38" y="72">sequencing_summary.txt</text>
+    <text class="note" x="38" y="90">from Guppy, Dorado or a converter</text>
+
+    <rect class="card card-in" x="20" y="124" width="258" height="56" rx="9"/>
+    <text class="name" x="38" y="150">barcoding_summary.txt</text>
+    <text class="note" x="38" y="168">optional, adds the barcode plots</text>
+
+    <rect class="card card-in" x="20" y="202" width="258" height="56" rx="9"/>
+    <text class="name" x="38" y="228">alignment.bam</text>
+    <text class="note" x="38" y="246">optional, adds the alignment plots</text>
+  </g>
+
+  <g class="wire" marker-end="url(#tip)">
+    <path d="M 286 74  C 348 74, 352 136, 410 136"/>
+    <path d="M 286 152 L 410 152"/>
+    <path d="M 286 230 C 348 230, 352 168, 410 168"/>
+  </g>
+
+  <rect class="core" x="418" y="112" width="164" height="80" rx="12"/>
+  <text class="corename" x="500" y="147" text-anchor="middle">pycoQC</text>
+  <text class="corenote" x="500" y="169" text-anchor="middle">parse · filter · plot</text>
+
+  <g class="wire-out" marker-end="url(#tip-out)">
+    <path d="M 586 136 C 642 136, 650 74, 712 74"/>
+    <path d="M 586 152 L 712 152"/>
+    <path d="M 586 168 C 642 168, 650 230, 712 230"/>
+  </g>
+
+  <!-- Outputs -->
+  <g>
+    <rect class="card card-out" x="722" y="46"  width="258" height="56" rx="9"/>
+    <text class="name" x="740" y="72">report.html</text>
+    <text class="note" x="740" y="90">interactive, self-contained</text>
+
+    <rect class="card card-out" x="722" y="124" width="258" height="56" rx="9"/>
+    <text class="name" x="740" y="150">report.pdf</text>
+    <text class="note" x="740" y="168">static, around 20x smaller</text>
+
+    <rect class="card card-out" x="722" y="202" width="258" height="56" rx="9"/>
+    <text class="name" x="740" y="228">report.json</text>
+    <text class="note" x="740" y="246">metrics for downstream use</text>
+  </g>
+</svg>
