@@ -61,7 +61,10 @@ Bam_to_seq_summary = "pycoQC.__main__:main_Bam_to_seq_summary"
 Barcode_split = "pycoQC.__main__:main_Barcode_split"
 
 [tool.setuptools]
-packages = ["pycoQC"]
+# templates/ holds data rather than modules, but setuptools treats any
+# directory as importable and warns unless it is listed here too. The files
+# themselves are shipped by package-data below.
+packages = ["pycoQC", "pycoQC.templates"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pycoQC.__version__"}
