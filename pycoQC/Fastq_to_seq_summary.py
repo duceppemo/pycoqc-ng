@@ -11,7 +11,6 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import multiprocessing as mp
 from time import time
 from collections import *
-from collections import *
 import traceback
 import logging
 from itertools import islice
@@ -23,7 +22,6 @@ from dateutil.parser import parse
 
 # Local imports
 from pycoQC.common import *
-import functions
 
 
 # Logger setup
@@ -102,8 +100,7 @@ class FastqParser(object):
         length = len(seq)
 
         # Average phred score
-        phred_list = [ord(letter) - 33 for letter in qual]
-        average_phred = round(functions.compute_average_quality(phred_list, length), 2)  # cython
+        average_phred = round(mean_qscore(qual, phred33=True), 2)
 
         # %GC
         g_count = float(seq.count('G'))
@@ -265,16 +262,16 @@ class Fastq_to_seq_summary():
             my_ext = ['fq', 'fq.gz', 'fastq', 'fastq.gz']
             i = 0
             for fastq_fn in recursive_file_gen(dir=self.fastq_dir, ext=my_ext):
-                i += 1
-                if self.max_fastq and i == self.max_fastq:
-                    break
                 in_q.put(fastq_fn)
+                i += 1
+                if self.max_fastq and i >= self.max_fastq:
+                    break
 
             # Raise error is no file found
             if i == 0:
                 raise pycoQCError("No valid fastq files found in indicated folder")
 
-            logger.debug("[READER] Add a total of {} files to input queue".format(i+1))
+            logger.debug("[READER] Add a total of {} files to input queue".format(i))
 
         # Manage exceptions and deal poison pills
         except Exception:
@@ -296,7 +293,6 @@ class Fastq_to_seq_summary():
             # Parse fastq file(s)
             for fastq_fn in iter(in_q.get, None):
                 # Try to extract data from the fastq file
-                d = OrderedDict()
                 value_dict = FastqParser.iterate_fastq_parallel(fastq_fn, self.threads)  # Field value
 
                 # Fetch required fields is available
@@ -306,6 +302,10 @@ class Fastq_to_seq_summary():
                 "calibration_strand_genome_template", "barcode_arrangement"
                 """
                 for read_id, read_info_dict in value_dict.items():
+                    # A fresh dict per read: the queue serialises entries in a
+                    # background thread, so a shared dict would be mutated
+                    # before it is pickled.
+                    d = OrderedDict()
                     for field in self.fields:
                         if field in read_info_dict:
                             d[field] = read_info_dict[field]
@@ -352,17 +352,8 @@ class Fastq_to_seq_summary():
             logger.debug("[WRITER] Write data to file")
             df = pd.DataFrame(l)
 
-            # Convert "start_time" column to datetime
-            df['start_time'] = pd.to_datetime(df['start_time'])
-
-            # Convert datetime to elapsed minutes
-            time_zero = df.loc[:, 'start_time'].min()  # looking for min of 1st elements of list of tuples
-            df.loc[:, 'start_time'] = df.loc[:, 'start_time'] - time_zero
-            df.loc[:, 'start_time'] = df.loc[:, 'start_time'].dt.total_seconds()
-            try:  #
-                df.loc[:, 'start_time'] = df.loc[:, 'start_time'].astype(int)  # Convert to integer
-            except pd.errors.IntCastingNaNError:
-                pass
+            # Express read start times as seconds since the first read
+            df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
 
 
             df.to_csv(self.seq_summary_fn, sep="\t", index=False)

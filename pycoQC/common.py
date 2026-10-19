@@ -8,6 +8,7 @@ import logging
 from collections import *
 
 # Third party imports
+import numpy as np
 import pandas as pd
 import pysam as ps
 
@@ -21,6 +22,57 @@ class pycoQCError(Exception):
 class pycoQCWarning(Warning):
     """ Basic Warning class for pycoQC package """
     pass
+
+
+##~~~~~~~ READ QUALITY ~~~~~~~#
+# Error probability for every possible per-base quality value, precomputed once
+# so that scoring a read is a single table lookup plus a mean.
+#   _ERROR_PROB[q]        q is a raw Phred score (pysam query_qualities)
+#   _ERROR_PROB_PHRED33[b] b is a byte of an ASCII Phred+33 string (FASTQ/SAM)
+_ERROR_PROB = np.power(10.0, -np.arange(256, dtype=np.float64) / 10.0)
+_ERROR_PROB_PHRED33 = np.power(10.0, -(np.arange(256, dtype=np.float64) - 33.0) / 10.0)
+
+
+def mean_qscore(qualities, phred33=False):
+    """Mean quality of a read, expressed as a Phred score
+
+    Phred scores are logarithmic, so averaging them directly overstates the
+    quality. The per-base error probabilities are averaged instead and the
+    result converted back to a Phred score.
+
+    * qualities
+        Per-base qualities, either as raw Phred values (any buffer of bytes,
+        such as the array returned by pysam's query_qualities) or as an ASCII
+        Phred+33 encoded string when phred33 is True.
+    * phred33
+        Treat qualities as ASCII Phred+33 encoded rather than as raw scores.
+    """
+    if not qualities:
+        return 0.0
+    if isinstance(qualities, str):
+        qualities = qualities.encode("ascii")
+    codes = np.frombuffer(qualities, dtype=np.uint8)
+    if codes.size == 0:
+        return 0.0
+    table = _ERROR_PROB_PHRED33 if phred33 else _ERROR_PROB
+    return float(-10.0 * np.log10(table[codes].mean()))
+
+
+def start_time_to_elapsed_seconds(start_time):
+    """Convert a column of read start times to seconds since the first read
+
+    The result is returned as whole seconds where possible, falling back to
+    floats when some times are missing.
+
+    * start_time
+        Series of parseable timestamps.
+    """
+    parsed = pd.to_datetime(start_time)
+    elapsed = (parsed - parsed.min()).dt.total_seconds()
+    try:
+        return elapsed.astype("int64")
+    except (pd.errors.IntCastingNaNError, ValueError):
+        return elapsed
 
 
 ##~~~~~~~ FUNCTIONS ~~~~~~~#
@@ -252,7 +304,7 @@ def jhelp(f: "python function or method"):
         Function or method to display the help message for
     """
     # Private import as this is only needed if using jupyter
-    from IPython.core.display import display, Markdown
+    from IPython.display import display, Markdown
 
     f_doc = doc_func(f)
     arg_doc = make_arg_dict(f)

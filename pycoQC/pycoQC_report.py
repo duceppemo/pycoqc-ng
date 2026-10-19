@@ -4,7 +4,7 @@
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
 import json
-from pkg_resources import resource_filename
+from importlib.resources import files
 import datetime
 import os
 
@@ -17,7 +17,7 @@ from pycoQC.common import *
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import pycoQC_plot
 from pycoQC import __version__ as package_version
-from pycoQC import __name__ as package_name
+from pycoQC import __package_name__ as package_name
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class pycoQC_report ():
@@ -94,7 +94,6 @@ class pycoQC_report ():
                         include_plotlyjs=False,
                         image_width='',
                         image_height='',
-                        show_link=False,
                         auto_open=False)
 
                     plots.append(plot)
@@ -172,9 +171,8 @@ class pycoQC_report ():
 
         # Last use the default hardcoded config_dict
         self.logger.debug("\tRead default configuration file")
-        config_file = resource_filename("pycoQC", "templates/pycoQC_config.json")
-        with open(config_file, 'r') as cf:
-            return json.load(cf)
+        config_json = files("pycoQC").joinpath("templates/pycoQC_config.json")
+        return json.loads(config_json.read_text())
 
     def _get_jinja_template(self, template_file=None):
         """"""

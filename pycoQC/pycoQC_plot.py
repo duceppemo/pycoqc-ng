@@ -17,7 +17,7 @@ from plotly.subplots import make_subplots
 # Local lib import
 from pycoQC.common import *
 from pycoQC.pycoQC_parse import pycoQC_parse
-from pycoQC import __name__ as package_name
+from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -2320,14 +2320,13 @@ class pycoQC_plot():
 
     @staticmethod
     def _compute_N50(data):
-        data = data.dropna().values
-        data.sort()
-        half_sum = data.sum() / 2
-        cum_sum = 0
-        for v in data:
-            cum_sum += v
-            if cum_sum >= half_sum:
-                return int(v)
+        # np.sort returns a new array: pandas hands out read-only views, so an
+        # in-place sort would fail. The cumulative sum replaces a Python loop.
+        values = np.sort(data.dropna().to_numpy())
+        if values.size == 0:
+            return np.nan
+        cum_sum = np.cumsum(values)
+        return int(values[np.searchsorted(cum_sum, cum_sum[-1] / 2, side="left")])
 
     @staticmethod
     def _compute_hist(data, x_scale="linear", smooth_sigma=2, nbins=200):

@@ -10,7 +10,6 @@ import pysam
 
 # Local imports
 from pycoQC.common import *
-import functions
 
 
 # Logger setup
@@ -165,9 +164,9 @@ class Bam_to_seq_summary():
                     tag, value = tag_tuple
                     if tag in tags_of_interest:
                         bam_dict[tag] = value
-                seq = bam_entry.seq
+                seq = bam_entry.query_sequence
                 length = bam_entry.query_length
-                qual = bam_entry.qual
+                qual = bam_entry.query_qualities
 
                 time_string = parse(bam_dict['st'])
                 channel = bam_dict['ch']
@@ -186,8 +185,7 @@ class Bam_to_seq_summary():
                     flag = 'TRUE'
 
                 # Average phred score
-                phred_list = [ord(letter) - 33 for letter in qual]
-                average_phred = round(functions.compute_average_quality(phred_list, length), 2)  # cython
+                average_phred = round(mean_qscore(qual), 2)
 
                 # %GC
                 g_count = float(seq.count('G'))
@@ -222,16 +220,7 @@ class Bam_to_seq_summary():
         df = pd.DataFrame.from_dict(bam_dict, orient='index')
         df.index.names = ['read_id']
 
-        # Convert "start_time" column to datetime
-        df['start_time'] = pd.to_datetime(df['start_time'])
-
-        # Convert datetime to elapsed minutes
-        time_zero = df.loc[:, 'start_time'].min()  # looking for min of 1st elements of list of tuples
-        df.loc[:, 'start_time'] = df.loc[:, 'start_time'] - time_zero
-        df.loc[:, 'start_time'] = df.loc[:, 'start_time'].dt.total_seconds()
-        try:  #
-            df.loc[:, 'start_time'] = df.loc[:, 'start_time'].astype(int)  # Convert to integer
-        except pd.errors.IntCastingNaNError:
-            pass
+        # Express read start times as seconds since the first read
+        df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
 
         df.to_csv(output_file, sep="\t", index=True, header=True)

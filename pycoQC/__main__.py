@@ -6,7 +6,7 @@
 import argparse
 import sys
 import textwrap
-from pkg_resources import resource_filename
+from importlib.resources import files
 
 # Third party imports
 from jinja2 import Environment, PackageLoader, Template
@@ -20,7 +20,7 @@ from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary
 from pycoQC.Barcode_split import barcode_split
 from pycoQC.common import get_logger
 from pycoQC import __version__ as package_version
-from pycoQC import __name__ as package_name
+from pycoQC import __package_name__ as package_name
 
 
 #~~~~~~~~~~~~~~pycoQC CLI ENTRY POINT~~~~~~~~~~~~~~#
@@ -115,9 +115,8 @@ def main_pycoQC(args=None):
 
     # Print the default config parameters and exit
     if args.default_config:
-        config_file = resource_filename("pycoQC", "templates/pycoQC_config.json")
-        with open(config_file) as fp:
-            sys.stdout.write(fp.read())
+        config_json = files("pycoQC").joinpath("templates/pycoQC_config.json")
+        sys.stdout.write(config_json.read_text())
         sys.exit()
 
     elif not args.summary_file:

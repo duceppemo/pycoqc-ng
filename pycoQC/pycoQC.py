@@ -12,7 +12,7 @@ from pycoQC.common import *
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import pycoQC_plot
 from pycoQC.pycoQC_report import pycoQC_report
-from pycoQC import __name__ as package_name
+from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
