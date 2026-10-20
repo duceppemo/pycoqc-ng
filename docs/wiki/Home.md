@@ -1,4 +1,6 @@
-# pycoqc-ng
+<p align="center">
+  <img src="https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/pycoqc-ng-logo.svg" alt="pycoqc-ng" width="620">
+</p>
 
 Interactive quality-control metrics and plots for Oxford Nanopore sequencing runs.
 
