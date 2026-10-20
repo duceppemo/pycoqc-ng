@@ -7,7 +7,6 @@ from collections import Counter, OrderedDict
 import warnings
 
 # Third party imports
-import numpy as np
 import pandas as pd
 import pysam as ps
 
@@ -120,32 +119,60 @@ class pycoQC_parse():
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~PRIVATE METHODS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
+    def _require_reads(self, df, step):
+        """Stop when a step has left too little to report on.
+
+        The plots need more than one read, so a single read file stops here
+        too; saying "no valid read left" when one was never discarded sent
+        people looking for a filtering bug that was not there.
+        """
+        if len(df) > 1:
+            return
+        if len(df) == 0:
+            raise pycoQCError(
+                "No reads left after {}.".format(step))
+        raise pycoQCError(
+            "Only one read left after {}. pycoQC needs at least two reads "
+            "to describe a run.".format(step))
+
     def _parse_summary(self):
         """"""
         self.logger.debug("\tParse summary files")
-        df = merge_files_to_df(self.summary_files_list)
+        df = merge_files_to_df(self.summary_files_list, self.logger)
 
         if self.cleanup:
             # Standardise col names for all types of files
             self.logger.debug("\tRename summary sequencing columns")
-            rename_colmanes = {
-                "sequence_length_template": "read_len",
-                "sequence_length_2d": "read_len",
-                "sequence_length": "read_len",
-                "mean_qscore_template": "mean_qscore",
-                "mean_qscore_2d": "mean_qscore",
-                "calibration_strand_genome_template": "calibration",
-                "barcode_arrangement": "barcode",
-                "gc_percent": "%GC"}
-            # A 1D2 summary carries both the template and the 2d column, and
-            # renaming both onto read_len left the frame with duplicate
-            # labels, which pandas refuses to reindex. The template column is
-            # the one pycoQC reports on, so drop the 2d partner when both are
-            # present rather than colliding.
-            for template, two_d in (("sequence_length_template", "sequence_length_2d"),
-                                    ("mean_qscore_template", "mean_qscore_2d")):
-                if template in df and two_d in df:
-                    df = df.drop(columns=two_d)
+            # Several spellings mean the same thing, and a file can carry
+            # more than one of them: a 1D2 summary has both the template and
+            # the 2d length. Renaming them all onto one name left the frame
+            # with duplicate labels, and pandas then answered an ordinary
+            # question about that column with "The truth value of a Series
+            # is ambiguous", which says nothing about the file. Each group
+            # below is in order of preference, and only the first spelling
+            # present is kept.
+            column_groups = (
+                ("read_len", ("sequence_length_template", "sequence_length_2d",
+                              "sequence_length", "read_len")),
+                ("mean_qscore", ("mean_qscore_template", "mean_qscore_2d",
+                                 "mean_qscore")),
+                ("calibration", ("calibration_strand_genome_template",
+                                 "calibration_strand_genome", "calibration")),
+                ("barcode", ("barcode_arrangement", "barcode")),
+                ("%GC", ("gc_percent", "%GC")))
+
+            rename_colmanes = {}
+            for target, sources in column_groups:
+                present = [c for c in sources if c in df]
+                if not present:
+                    continue
+                if len(present) > 1:
+                    self.logger.debug(
+                        "\t\tUsing {} for {}, ignoring {}".format(
+                            present[0], target, ", ".join(present[1:])))
+                    df = df.drop(columns=present[1:])
+                if present[0] != target:
+                    rename_colmanes[present[0]] = target
 
             df = df.rename(columns=rename_colmanes)
 
@@ -172,6 +199,12 @@ class pycoQC_parse():
     # Columns that describe the run rather than a read. Several spellings
     # exist because the basecallers and the converters disagree, and the
     # first one present wins.
+    # What a basecaller writes in the calibration column when a read did not
+    # align to a control genome. Albacore: filtered_out, no_match. Guppy 2.2
+    # onwards: *, wrong_length. An empty field counts too.
+    CALIBRATION_SENTINELS = frozenset(
+        ["filtered_out", "no_match", "*", "wrong_length", "", "-1", "nan"])
+
     RUN_METADATA_COLUMNS = (
         ("Run started", ("run_start_time", "acquisition_start_time",
                          "exp_start_time", "protocol_start_time")),
@@ -221,7 +254,7 @@ class pycoQC_parse():
 
         if self.barcode_files_list:
             self.logger.debug("\tParse barcode files")
-            df = merge_files_to_df(self.barcode_files_list)
+            df = merge_files_to_df(self.barcode_files_list, self.logger)
 
         # Check presence of barcode details
             if "read_id" in df and "barcode_arrangement" in df:
@@ -233,6 +266,15 @@ class pycoQC_parse():
                 df = df.rename(columns={"read_ID": "read_id", "barcode_call": "barcode"})
 
             df = df[["read_id", "barcode"]]
+            # Deepbinner writes barcodes as bare numbers, so pandas types the
+            # column as int, or as float once the merge introduces a missing
+            # value for a read the file does not mention. Barcode 6 then
+            # arrives as 6, "6" or 6.0 depending on the file and the chunk it
+            # was read in, which splits one barcode into several in the
+            # report, names its output file sequencing_summary_6.0.txt, and
+            # makes sorting the labels raise. A barcode is a name, not a
+            # quantity, so it is read as one.
+            df["barcode"] = df["barcode"].astype(str).str.strip()
             # Overlapping barcode files repeat read ids, and a left merge on
             # a duplicated key multiplies the read rather than failing, so
             # every count came out slightly high.
@@ -351,25 +393,43 @@ class pycoQC_parse():
         # the whole report down, while the plots that did not sort quietly
         # left those reads out. The separate barcode file was already
         # handled this way.
+        # Same reasoning as the barcode file: a summary whose barcodes are
+        # numbers must not be typed as numbers.
+        if "barcode" in df:
+            df["barcode"] = df["barcode"].astype("object").where(
+                df["barcode"].isna(), df["barcode"].astype(str).str.strip())
+
         if "barcode" in df and df["barcode"].isna().any():
             missing = int(df["barcode"].isna().sum())
             self.logger.info(
                 "\t{:,} reads without a barcode marked unclassified".format(missing))
             df["barcode"] = df["barcode"].fillna("unclassified")
 
-        # Drop lines containing NA values
+        # Drop reads that cannot be reported on at all. A read needs an id,
+        # a length and a quality score; everything else only decides which
+        # plots it can appear in. Requiring the optional columns as well
+        # discarded reads that had all three: a BAM where some records carry
+        # no ch or st tag lost those reads from the read count, the yield and
+        # the N50, which are exactly the numbers people quote.
         self.logger.info("\tDiscarding lines containing NA values")
         l = len(df)
-        subset = [c for c in ("read_id", "run_id", "channel", "start_time",
-                              "read_len", "mean_qscore") if c in df]
+        subset = [c for c in ("read_id", "read_len", "mean_qscore") if c in df]
         df = df.dropna(subset=subset)
-        if '%GC' in df:
-            df = df.dropna(subset="%GC")
         n = l-len(df)
         self.logger.info("\t\t{:,} reads discarded".format(n))
         self.counter["Reads with NA values discarded"] = n
-        if len(df) <= 1:
-            raise pycoQCError("No valid read left after NA values filtering")
+        self._require_reads(df, "discarding reads with missing values")
+
+        # Say which reads will be missing from which plots, since that is no
+        # longer visible as a drop in the read count.
+        for col, plots in (("start_time", "the over time plots"),
+                           ("channel", "the channel activity plot"),
+                           ("run_id", "the per run ordering"),
+                           ("%GC", "the %GC plots")):
+            if col in df and df[col].isna().any():
+                self.logger.info(
+                    "\t\t{:,} reads have no {} and are left out of {}".format(
+                        int(df[col].isna().sum()), col, plots))
 
         # Filter out zero length reads
         self.logger.info("\tFiltering out zero length reads")
@@ -378,8 +438,7 @@ class pycoQC_parse():
         n = l-len(df)
         self.logger.info("\t\t{:,} reads discarded".format(n))
         self.counter["Zero length reads discarded"] = n
-        if len(df) <= 1:
-            raise pycoQCError("No valid read left after zero_len filtering")
+        self._require_reads(df, "discarding zero length reads")
 
         # Filter out reads with duplicated read_id
         if self.filter_duplicated:
@@ -389,19 +448,41 @@ class pycoQC_parse():
             n = l-len(df)
             self.logger.info("\t\t{:,} reads discarded".format(n))
             self.counter["Duplicated reads discarded"] = n
-            if len(df) <= 1:
-                raise pycoQCError("No valid read left after calibration strand filtering")
+            self._require_reads(df, "discarding duplicated reads")
 
-        # Filter out calibration strand reads if the "calibration_strand_genome_template" field is available
+        # Filter out calibration strand reads, where the basecaller recorded
+        # which control genome each read aligned to. A read that aligned to
+        # one is a control strand; the rest of the column is sentinels saying
+        # why no alignment was recorded, and those differ by basecaller:
+        # Albacore writes filtered_out and no_match, Guppy 2.2 writes * and
+        # wrong_length. Keeping a list of the sentinels and discarding
+        # everything else was the wrong way round, because an unrecognised
+        # sentinel then looks like a genome name: run the Guppy file through
+        # it and 45,541 of 50,000 reads are thrown away as controls.
         if self.filter_calibration and "calibration" in df:
             self.logger.info("\tFiltering out calibration strand reads")
             l = len(df)
-            df = df[(df["calibration"].isin(["filtered_out", "no_match", "*"]))]
-            n = l-len(df)
+            values = df["calibration"].astype(str).str.strip()
+            is_control = ~values.isin(self.CALIBRATION_SENTINELS) & df["calibration"].notna()
+            n = int(is_control.sum())
+
+            # A control is a spike-in, never the bulk of a run, so a filter
+            # that wants to drop most of the reads has not understood the
+            # column. Say so rather than publish a report missing them.
+            if n > len(df) / 2:
+                unknown = values[is_control].value_counts().head(5)
+                raise pycoQCError(
+                    "Calibration filtering would discard {:,} of {:,} reads. The "
+                    "values {} are not recognised, and are more likely to be "
+                    "markers this version of pycoQC does not know than genuine "
+                    "control strands. Rerun without --filter_calibration, and "
+                    "please report these values as an issue.".format(
+                        n, len(df), ", ".join(repr(v) for v in unknown.index)))
+
+            df = df[~is_control]
             self.logger.info("\t\t{:,} reads discarded".format(n))
             self.counter["Calibration reads discarded"] = n
-            if len(df) <= 1:
-                raise pycoQCError("No valid read left after calibration strand filtering")
+            self._require_reads(df, "discarding calibration strands")
 
         # Ordering runs in time needs both columns; without them there is
         # nothing to order and the reads are left as they are.
@@ -417,8 +498,7 @@ class pycoQC_parse():
             n = l - len(df)
             self.logger.debug("\t\t{:,} reads discarded".format(n))
             self.counter["Excluded runid reads discarded"] = n
-            if len(df) <= 1:
-                raise pycoQCError("No valid read left after run ID filtering")
+            self._require_reads(df, "selecting the requested run ids")
             runid_list = self.runid_list
 
         # Else sort the runids by output per time assuming that the throughput decreases over time
@@ -429,7 +509,8 @@ class pycoQC_parse():
                 # A run whose reads all carry the same timestamp spans no
                 # time, so throughput is undefined rather than infinite. Rank
                 # it last instead of dividing by zero.
-                span = float(np.ptp(sdf["start_time"]))
+                times = sdf["start_time"].dropna()
+                span = float(times.max() - times.min()) if len(times) else 0.0
                 d[run_id] = len(sdf) / span if span else 0.0
             runid_list = [i for i, j in sorted(d.items(), key=lambda t: t[1], reverse=True)]
             self.logger.info("\t\tRun-id order {}".format(runid_list))
@@ -475,11 +556,21 @@ class pycoQC_parse():
             self.logger.info("\t\t{:,} reads with low frequency barcode unset".format(n))
             self.counter["Reads with low frequency barcode unset"] = n
 
-        # Cast values to required types
+        # Cast values to required types. A column that is missing for some
+        # reads cannot hold a plain integer, so the nullable type is used
+        # instead of dropping those reads for the sake of the dtype.
         self.logger.info("\tCast value to appropriate type")
         dtypes = {"channel": "uint16", "start_time": "float32",
                   "read_len": "uint32", "mean_qscore": "float32"}
-        df = df.astype({k: v for k, v in dtypes.items() if k in df})
+        nullable = {"uint16": "UInt16", "uint32": "UInt32"}
+        cast = {}
+        for col, dtype in dtypes.items():
+            if col not in df:
+                continue
+            if dtype in nullable and df[col].isna().any():
+                dtype = nullable[dtype]
+            cast[col] = dtype
+        df = df.astype(cast)
 
         # Reindex final df
         self.logger.info("\tReindexing dataframe by read_ids")

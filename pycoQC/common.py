@@ -122,6 +122,34 @@ def start_time_to_elapsed_seconds(start_time):
         return elapsed
 
 
+def elapsed_seconds_per_run(df, time_col="start_time", run_col="run_id"):
+    """Convert read start times to seconds since the start of their own run.
+
+    A basecaller's own summary counts from the moment its run started, and
+    pycoQC relies on that when it lays several runs out in order. Counting
+    from the first read in the directory instead puts the whole wall clock
+    gap between two runs inside the second one: two one hour runs recorded
+    two days apart were reported as a single 50 hour run.
+
+    * df
+        Frame holding the times, modified in place.
+    * time_col, run_col
+        Column names. Without the run column the whole frame is one run.
+    """
+    if time_col not in df:
+        return df
+
+    if run_col in df and df[run_col].notna().any():
+        # groupby drops rows whose key is missing, so unlabelled reads are
+        # gathered under one key of their own rather than being lost.
+        keys = df[run_col].fillna("")
+        df[time_col] = (df.groupby(keys, sort=False)[time_col]
+                          .transform(start_time_to_elapsed_seconds))
+    else:
+        df[time_col] = start_time_to_elapsed_seconds(df[time_col])
+    return df
+
+
 ##~~~~~~~ FUNCTIONS ~~~~~~~#
 def is_readable_file(fn):
     """Verify the readability of a file or list of file"""
@@ -484,16 +512,44 @@ def expand_file_names(fn, bam_check=False):
     return fn_list
 
 
-def merge_files_to_df(fn_list):
-    """"""
-    if len(fn_list) == 1:
-        df = pd.read_csv(fn_list[0], sep="\t")
+def merge_files_to_df(fn_list, logger=None):
+    """Read tab separated files and stack them into one frame.
 
-    else:
-        df_list = []
-        for fn in fn_list:
-            df_list.append(pd.read_csv(fn, sep="\t"))
-        df = pd.concat(df_list, ignore_index=True, sort=False, join="inner")
+    * fn_list
+        Paths to read.
+    * logger
+        Told which columns the files disagree on, if any.
+    """
+    try:
+        if len(fn_list) == 1:
+            df = pd.read_csv(fn_list[0], sep="\t")
+
+        else:
+            df_list = []
+            for fn in fn_list:
+                df_list.append(pd.read_csv(fn, sep="\t"))
+
+            # Only the columns every file has survive the stack. That is the
+            # safe choice, but it used to happen in silence: two summaries
+            # where one lacked start_time produced a report with no time
+            # plots at all and nothing to say why.
+            shared = set(df_list[0].columns).intersection(
+                *[set(d.columns) for d in df_list[1:]])
+            dropped = sorted(set().union(*[set(d.columns) for d in df_list])
+                             - shared)
+            if dropped and logger:
+                logger.warning(
+                    "WARNING: {} not present in every input file and left "
+                    "out: {}".format(
+                        "columns are" if len(dropped) > 1 else "column is",
+                        ", ".join(dropped)))
+
+            df = pd.concat(df_list, ignore_index=True, sort=False, join="inner")
+    except pd.errors.EmptyDataError:
+        raise pycoQCError(
+            "No data found in {}. The file is empty, or holds a header with "
+            "no reads under it.".format(
+                fn_list[0] if len(fn_list) == 1 else ", ".join(fn_list)))
 
     if len(df) == 0:
         raise pycoQCError("No valid read found in input file")

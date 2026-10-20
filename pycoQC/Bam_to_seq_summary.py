@@ -16,7 +16,7 @@ from pycoQC.common import (
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
-    start_time_to_elapsed_seconds)
+    elapsed_seconds_per_run)
 
 
 # Logger setup
@@ -307,7 +307,10 @@ class Bam_to_seq_summary():
         df = pd.DataFrame.from_dict(bam_dict, orient='index')
         df.index.names = ['read_id']
 
-        # Express read start times as seconds since the first read
-        df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
+        # Express read start times as seconds since their own run began. A
+        # directory can hold several runs, and counting from the first read
+        # of the whole directory charged the gap between them to the later
+        # one: two one hour runs two days apart were reported as 50 hours.
+        elapsed_seconds_per_run(df)
 
         df.to_csv(output_file, sep="\t", index=True, header=True)

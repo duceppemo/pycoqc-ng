@@ -17,8 +17,13 @@ def reference_over_time_data(df, field_name, time_bins=500, smooth_sigma=0):
     subset = df[["start_time", field_name]].dropna()
     data = subset[field_name].to_numpy()
     t = (subset["start_time"] / 3600).to_numpy()
-    x = np.linspace(t.min(), t.max(), num=time_bins)
-    bin_idx = np.digitize(t, bins=x, right=True)
+    # The run is divided into time_bins intervals and each is labelled by
+    # its centre, so a bin covers a real stretch of the run. Digitising
+    # against the labels put only the reads at exactly t.min in the first
+    # bin and labelled every other bin by the moment it ended.
+    edges = np.linspace(t.min(), t.max(), num=time_bins + 1)
+    x = (edges[:-1] + edges[1:]) / 2
+    bin_idx = np.clip(np.digitize(t, bins=edges[1:-1]), 0, time_bins - 1)
 
     per_bin = {}
     for idx, val in zip(bin_idx, data):

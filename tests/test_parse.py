@@ -133,7 +133,7 @@ class TestFilters:
 
     def test_selecting_an_unknown_runid_is_reported(self, tmp_path):
         summary = write_summary(tmp_path / "s.txt", n=600)
-        with pytest.raises(pycoQCError, match="run ID"):
+        with pytest.raises(pycoQCError, match="run ids"):
             pycoQC_parse(summary_file=str(summary),
                          runid_list=["nope"], quiet=True)
 

@@ -28,7 +28,7 @@ from pycoQC.common import (
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
-    start_time_to_elapsed_seconds)
+    elapsed_seconds_per_run)
 
 
 # Logger setup
@@ -421,10 +421,18 @@ class Fastq_to_seq_summary():
                 # it ran.
                 absolute = pd.to_datetime(df['start_time'], errors="coerce")
                 if absolute.notna().any():
-                    df['run_start_time'] = absolute.min().isoformat()
+                    if 'run_id' in df and df['run_id'].notna().any():
+                        # One directory can hold more than one run, and each
+                        # one started when it started.
+                        df['run_start_time'] = (
+                            absolute.groupby(df['run_id'].fillna(""), sort=False)
+                                    .transform("min").dt.strftime("%Y-%m-%dT%H:%M:%S"))
+                    else:
+                        df['run_start_time'] = absolute.min().isoformat()
 
-                # Express read start times as seconds since the first read
-                df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
+                # Express read start times as seconds since their own run
+                # began, which is what the basecaller's summary does.
+                elapsed_seconds_per_run(df)
 
 
             df.to_csv(self.seq_summary_fn, sep="\t", index=False)

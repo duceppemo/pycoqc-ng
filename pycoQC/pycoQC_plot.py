@@ -167,7 +167,10 @@ class pycoQC_plot():
     def _run_duration(self, df):
         if "start_time" not in df:
             return np.nan
-        return float(np.ptp(df["start_time"]) / 3600)
+        times = df["start_time"].dropna()
+        if times.empty:
+            return np.nan
+        return float(times.max() - times.min()) / 3600
 
     def _active_channels(self, df):
         if "channel" not in df:
@@ -191,6 +194,19 @@ class pycoQC_plot():
         counts = df["barcode"].value_counts()
         counts = counts.sort_index()
         return counts.to_frame()
+
+    def _level_dfs(self, df_level):
+        """The whole frame and the sample drawn from it, for one read set.
+
+        Counting reads and summing bases is a single pass over a column, so
+        those come from the whole run and are exact. Medians, N50s and the
+        densities stay on the sample, which is what sampling is for.
+        """
+        if df_level == "pass":
+            return self.pass_df, self.pass_sample_df
+        if df_level == "fail":
+            return self.fail_df, self.fail_sample_df
+        return self.all_df, self.all_sample_df
 
     def _basecalled_reads(self, df):
         return len(df)
@@ -224,7 +240,20 @@ class pycoQC_plot():
         return self._median_or_nan(df["%GC"])
 
     def _alignment_mean_coverage(self, df):
-        return df["align_len"].dropna().sum()/self.total_ref_len if self.has_alignment else np.nan
+        """Mean depth over the reference.
+
+        Measured as the reference each alignment spans, which is what the
+        coverage plot integrates. Summing align_len instead counts aligned
+        query bases, which insertions inflate and deletions deflate, and the
+        report then gave two different mean coverages for one run: 13.77X in
+        this table against 13.37X on the plot.
+        """
+        if not self.has_alignment:
+            return np.nan
+        if "ref_start" not in df or "ref_end" not in df:
+            return np.nan
+        spans = (df["ref_end"] - df["ref_start"]).dropna()
+        return spans.sum() / self.total_ref_len
 
     def _aligned_reads(self, df):
         return len(df["align_len"].dropna()) if self.has_alignment else np.nan
@@ -564,41 +593,33 @@ class pycoQC_plot():
 
     def __summary_barcode_data(self, df_level):
 
-        # Get data and scaling factor. Plots are built from a sample of at
-        # most `sample` reads, so counts taken from it have to be scaled back
-        # up to the whole run, as the over-time and channel plots already do.
-        # Without it a million read run reported its barcodes as if only
-        # 100,000 reads had been sequenced.
-        if df_level == "pass":
-            df = self.pass_sample_df
-            scaling_factor = self.pass_scaling_factor
-        elif df_level == "fail":
-            df = self.fail_sample_df
-            scaling_factor = self.fail_scaling_factor
-        else:
-            df = self.all_sample_df
-            scaling_factor = self.all_scaling_factor
+        # Reads and bases are counted over the whole run, so this table and
+        # the basecall summary on the same page agree to the read. Scaling a
+        # sample up was unbiased but noisy, and because pass and fail are
+        # sampled separately their barcode counts did not add up to the all
+        # reads row. The distribution statistics still come from the sample.
+        df, sample_df = self._level_dfs(df_level)
 
         # Extract data
         data = []
         i = 0
-        # bc_list = sorted(df['barcode'].astype(str).unique())
         bc_list = sorted(df['barcode'].unique())
 
         for i, bc in enumerate(bc_list):
             # Extract data for barcode
             df1 = df[df['barcode'] == bc]
+            sample1 = sample_df[sample_df['barcode'] == bc]
             data.append([
                 bc,
-                int(round(self._basecalled_reads(df1) * scaling_factor)),
-                int(round(self._basecalled_bases(df1) * scaling_factor)),
+                self._basecalled_reads(df1),
+                self._basecalled_bases(df1),
                 # Medians and N50 are distribution statistics, so the sample
-                # estimates them directly and they are not scaled.
-                self._basecall_N50(df1),
-                self._basecall_median_read_len(df1),
-                self._basecall_median_read_qscore(df1)])
+                # estimates them directly.
+                self._basecall_N50(sample1),
+                self._basecall_median_read_len(sample1),
+                self._basecall_median_read_qscore(sample1)])
             if '%GC' in self.all_df:
-                data[i].append(self._basecall_median_read_gc(df1))
+                data[i].append(self._basecall_median_read_gc(sample1))
                 i += 1
 
         data_dict = dict(
@@ -825,14 +846,19 @@ class pycoQC_plot():
             min_val = np.nanmin(data)
             maxval = np.nanmax(data)
             if x_scale == "log":
-                count_y, bins = np.histogram(a=data, bins=np.logspace(np.log10(min_val), np.log10(maxval)+0.1, nbins))
+                count_y, bins = np.histogram(
+                    a=data, bins=self._hist_bins(min_val, maxval, nbins, "log"))
             elif x_scale == "linear":
-                count_y, bins = np.histogram(a=data, bins=np.linspace(min_val, maxval, nbins))
+                count_y, bins = np.histogram(
+                    a=data, bins=self._hist_bins(min_val, maxval, nbins))
             else:  # That would generate an error
                 count_y, bins = '', ''
 
-            # Remove last bin from labels
-            count_x = bins[1:]
+            # Label each bin by its centre. The right edge drew every point
+            # half a bin too far along: on the log length axis that is a
+            # constant +2.6% on a 200 bin plot, and it put the density's
+            # right hand tail 26% past the longest read in the run.
+            count_x = (bins[:-1] + bins[1:]) / 2
 
             # Smooth results with a gaussian filter, in floating point: the
             # counts are integers and smoothing in place truncated them, so
@@ -1189,22 +1215,30 @@ class pycoQC_plot():
             x_data = df[x_field_name].values
             x_min, x_med, x_max = np.percentile(x_data, (0, 50, 100))
             if x_scale == "log":
-                x_bins = np.logspace(start=np.log10(x_min), stop=np.log10(x_max)+0.1, num=x_nbins, base=10)
+                x_bins = self._hist_bins(x_min, x_max, x_nbins, "log")
             else:
-                x_bins = np.linspace(start=x_min, stop=x_max, num=x_nbins)
+                x_bins = self._hist_bins(x_min, x_max, x_nbins)
 
             # Prepare data for y
             y_data = df[y_field_name].values
             y_min, y_med, y_max = np.percentile(y_data,(0, 50, 100))
             if y_scale == "log":
-                y_bins = np.logspace(start=np.log10(y_min), stop=np.log10(y_max)+0.1, num=y_nbins, base=10)
+                y_bins = self._hist_bins(y_min, y_max, y_nbins, "log")
             else:
-                y_bins = np.linspace(start=y_min, stop=y_max, num=y_nbins)
+                y_bins = self._hist_bins(y_min, y_max, y_nbins)
 
             # Compute 2D histogram
             z, y, x = np.histogram2d(x=y_data, y=x_data, bins=[y_bins, x_bins])
             if smooth_sigma:
                 z = gaussian_filter(z, sigma=smooth_sigma)
+
+            # histogram2d returns edges, one more than there are cells, and
+            # a contour trace takes the coordinates it is given as cell
+            # centres. Handing it the edges therefore drew the whole density
+            # half a bin left and down, away from the exact median marker
+            # drawn on the same axes.
+            x = (x[:-1] + x[1:]) / 2
+            y = (y[:-1] + y[1:]) / 2
             z_min, z_max = np.percentile(z, (0, 100))
 
             # Extract label and values
@@ -1296,40 +1330,39 @@ class pycoQC_plot():
         """Private function preparing data for output_over_time"""
         self.logger.debug("\t\tPreparing data for {} {}".format(df_level, count_level))
 
-        # Get data and scaling factor
-        if df_level == "pass":
-            df = self.pass_sample_df
-        elif df_level == "fail":
-            df = self.fail_sample_df
-        else:
-            df = self.all_sample_df
-
-        if df_level == "pass":
-            sf = self.pass_scaling_factor
-        elif df_level == "fail":
-            sf = self.fail_scaling_factor
-        else:
-            sf = self.all_scaling_factor
+        # Reads and bases are counted over the whole run. Scaling a sample
+        # by the ratio of read counts is right for reads and wrong for
+        # bases, because the sampled reads do not hold that same share of
+        # the bases: the lambda run's yield was reported as 14,419,599,424
+        # bases against the 14,338,032,127 in the summary table on the same
+        # page. Binning the real column is one pass and settles it.
+        df, _ = self._level_dfs(df_level)
 
         try:
-            # Bin data in categories
+            # Divide the run into time_bins real intervals and label each by
+            # its centre, as the channel heatmap does. Digitising against
+            # the labels themselves made the first bin hold only the reads
+            # at exactly t.min and drew every other bin's count half an
+            # interval late.
+            # Reads whose start time is missing cannot be placed on the
+            # axis; the rest of the run still can.
+            df = df.dropna(subset="start_time")
             t = (df["start_time"] / 3600).values
-            x = np.linspace(t.min(), t.max(), num=time_bins)
-            t = np.digitize(t, bins=x, right=True)
+            edges = np.linspace(t.min(), t.max(), num=time_bins + 1)
+            x = (edges[:-1] + edges[1:]) / 2
+            t = np.clip(np.digitize(t, bins=edges[1:-1]), 0, time_bins - 1)
 
             # Count reads or bases per categories. Counting reads gives
             # integers, and the smoothing below would truncate them whenever
             # the scaling factor is 1, which is any run small enough not to
             # be sampled, showing gaps in the trace that are not there.
             if count_level == "reads":
-                y = np.bincount(t).astype(np.float64)
+                y = np.bincount(t, minlength=time_bins).astype(np.float64)
             elif count_level == "bases":
-                y = np.bincount(t, weights=df["read_len"].values)
+                y = np.bincount(t, weights=df["read_len"].values,
+                                minlength=time_bins)
             else:
                 y = 0  # Should not get here
-
-            # Scale counts in case of down-sampling
-            y = y * sf
 
             # Transform to cumulative distribution
             y_cum = np.cumsum(y)
@@ -1679,10 +1712,12 @@ class pycoQC_plot():
         data = subset[field_name].to_numpy()
 
         try:
-            # Bin data in categories
+            # Same binning as the other over time plots: real intervals,
+            # each labelled by its centre.
             t = (subset["start_time"] / 3600).to_numpy()
-            x = np.linspace(t.min(), t.max(), num=time_bins)
-            bin_idx = np.digitize(t, bins=x, right=True)
+            edges = np.linspace(t.min(), t.max(), num=time_bins + 1)
+            x = (edges[:-1] + edges[1:]) / 2
+            bin_idx = np.clip(np.digitize(t, bins=edges[1:-1]), 0, time_bins - 1)
 
             # Aggregate values per category. Grouping in pandas avoids building
             # one Python list per bin and keeps the percentiles vectorised.
@@ -1810,22 +1845,11 @@ class pycoQC_plot():
         """Private function preparing data for barcode_counts"""
         self.logger.debug("\t\tPreparing data for {} reads".format(df_level))
 
-        # Get data and scaling factor
-        if df_level == "pass":
-            df = self.pass_sample_df
-            scaling_factor = self.pass_scaling_factor
-        elif df_level == 'fail':
-            df = self.fail_sample_df
-            scaling_factor = self.fail_scaling_factor
-        else:
-            df = self.all_sample_df
-            scaling_factor = self.all_scaling_factor
-
-        # Scaled back up to the whole run: the pie's percentages were right
-        # either way, but its counts were sample counts.
-        counts = df["barcode"].value_counts()
-        counts = counts.sort_index()
-        counts = (counts * scaling_factor).round().astype("int64")
+        # Counting is cheap, so these are the run's own counts rather than
+        # a sample scaled back up, which was unbiased but noisy and did not
+        # match the barcode table on the same page.
+        df, _ = self._level_dfs(df_level)
+        counts = df["barcode"].value_counts().sort_index()
 
         # Extract label and values
         data_dict = dict(
@@ -1948,6 +1972,7 @@ class pycoQC_plot():
             # whole picture half a bin, since plotly draws bricks centred on
             # the y values. Dividing the span into time_bins real intervals
             # and labelling each by its centre avoids both.
+            df = df.dropna(subset=["start_time", "channel"])
             t = (df["start_time"] / 3600).values
             edges = np.linspace(t.min(), t.max(), num=time_bins + 1)
             bins = (edges[:-1] + edges[1:]) / 2
@@ -2534,21 +2559,53 @@ class pycoQC_plot():
         return int(values[min(index, values.size - 1)])
 
     @staticmethod
+    def _hist_bins(min_value, max_value, nbins, scale="linear"):
+        """Bin edges spanning the data, with the largest value inside them.
+
+        Extending the top edge by 0.1 in log10 made room for it, but that is
+        26% of the way to the next decade: the length density ran out to
+        127 kb on a run whose longest read was 101 kb. The edge only has to
+        clear the rounding error from the log10 round trip, which a relative
+        nudge does. Equal values still need a width to be drawn at all.
+        """
+        if scale == "log":
+            if max_value <= min_value:
+                return np.logspace(np.log10(min_value * 0.95),
+                                   np.log10(max_value * 1.05), nbins)
+            # Both ends need the nudge. Going through log10 and back moves
+            # the edge either way, and the bottom one moved up, which put
+            # the shortest read in the run outside the histogram entirely.
+            return np.logspace(np.log10(min_value * (1 - 1e-9)),
+                               np.log10(max_value * (1 + 1e-9)), nbins)
+
+        if max_value <= min_value:
+            return np.linspace(min_value - 0.5, max_value + 0.5, nbins)
+        return np.linspace(min_value, max_value, nbins)
+
+    @staticmethod
     def _compute_hist(data, x_scale="linear", smooth_sigma=2, nbins=200):
 
-        # Nothing to bin when the read set is empty.
-        if len(data) == 0:
+        # Nothing to bin when the read set is empty, or when none of it is a
+        # number. A BAM aligned against the wrong reference leaves every
+        # align_len missing, and nanmin of that is itself nan: the bin edges
+        # all became nan and numpy then counted the missing values into the
+        # top bins, so the JSON reported a histogram of reads that did not
+        # align to anything.
+        data = np.asarray(data, dtype=np.float64).ravel()
+        data = data[np.isfinite(data)]
+        if data.size == 0:
             return [], []
 
         # Count each categories in log or linear space
-        min_value = np.nanmin(data)
-        max_value = np.nanmax(data)
+        min_value = data.min()
+        max_value = data.max()
 
         if x_scale == "log":
-            count_y, bins = np.histogram(a=data, bins=np.logspace(np.log10(min_value),
-                                                                  np.log10(max_value) + 0.1, nbins))
+            count_y, bins = np.histogram(
+                a=data, bins=pycoQC_plot._hist_bins(min_value, max_value, nbins, "log"))
         elif x_scale == "linear":
-            count_y, bins = np.histogram(a=data, bins=np.linspace(min_value, max_value, nbins))
+            count_y, bins = np.histogram(
+                a=data, bins=pycoQC_plot._hist_bins(min_value, max_value, nbins))
         else:  # Should not get here
             count_y = ''
             bins = ''
