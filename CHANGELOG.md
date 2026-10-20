@@ -37,6 +37,20 @@
 * The barcode figure's buttons took two clicks and only updated the table;
   at 96 barcodes the legend, the pie and the table were unreadable or cut
   off, in the PDF as well.
+* The converters stopped descending into a directory as soon as they found
+  one matching file, so a `fastq_pass` holding `unclassified.fastq` beside
+  one folder per barcode converted the unclassified reads and nothing else.
+* `--fields` and `--include_path` were accepted and ignored by
+  `Bam_to_seq_summary`, as was `--include_path` by `Pod5_to_seq_summary`;
+  `--basecall_id` now says it has no meaning for those formats rather than
+  being silently dropped. `Fast5_to_seq_summary`'s command line default
+  left out four run level fields its Python default includes.
+* FASTQ records were collected into a dict keyed by read id, so repeated
+  ids merged, but only when they fell in the same 1,000 read block.
+* A bam or fastq directory holding no reads wrote an empty summary or
+  raised `KeyError`.
+* `--config_file`'s help has always promised a lookup in `~/.pycoQC` and
+  `~/.config/pycoQC/config`; nothing looked there.
 
 ### 2026-10-19 — pycoqc-ng 3.0.0
 

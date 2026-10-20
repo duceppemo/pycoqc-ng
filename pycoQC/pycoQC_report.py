@@ -442,6 +442,25 @@ class pycoQC_report ():
                     "Falling back to the default configuration.".format(
                         config_file, E))
 
+        # Then the per user configuration the command line help has always
+        # promised. Nothing looked in either location, so a file put there
+        # was ignored and the report came out with the default plots.
+        for candidate in (os.path.expanduser("~/.pycoQC"),
+                          os.path.expanduser("~/.config/pycoQC/config")):
+            if os.path.isfile(candidate):
+                self.logger.debug("\tTry to read {}".format(candidate))
+                try:
+                    with open(candidate) as cf:
+                        config = json.load(cf)
+                    self.logger.info(
+                        "\tUsing the configuration in {}".format(candidate))
+                    return config
+                except (IOError, json.JSONDecodeError) as E:
+                    self.logger.warning(
+                        "WARNING: could not read the configuration file {} "
+                        "({}). Falling back to the default "
+                        "configuration.".format(candidate, E))
+
         # Last use the default hardcoded config_dict. A run that has not
         # been basecalled has no read lengths or quality scores, so most of
         # the usual plots would be skipped one after another and the report

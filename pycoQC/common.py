@@ -2,9 +2,9 @@
 
 # Standard library imports
 from datetime import datetime as _datetime
-from os import access, R_OK, listdir, path, makedirs
+from os import access, R_OK, listdir, path, makedirs, walk
 import inspect
-from glob import iglob, glob
+from glob import glob
 import logging
 import re
 from collections import Counter, OrderedDict
@@ -235,41 +235,31 @@ def dict_to_str(c, prefix="\t", suffix="\n"):
 
 
 def recursive_file_gen(dir, ext):
+    """List every file with the given extension under a directory.
+
+    * dir
+        Directory to walk. A path that is not a directory yields nothing.
+    * ext
+        Extension, without the dot, or a list of them.
+
+    This used to stop descending as soon as one matching file was found in a
+    directory, which quietly lost reads from a very ordinary layout: a
+    fastq_pass folder holding unclassified.fastq beside one folder per
+    barcode returned the unclassified reads and nothing else, with no
+    warning and a read count that looked plausible.
     """
-    create a generator listing all files with a particular extension in a folder arborescence
-    The recursivity is broken when at least 1 file with a particular extension is found.
-    """
-    if type(ext) == list:  # Check if ext is a list (looking for multiple file extensions
-        for ex in ext:
-            # In the case where the folder is a file
-            if path.isdir(dir):
+    extensions = ext if isinstance(ext, list) else [ext]
+    suffixes = tuple("." + e for e in extensions)
 
-                # If matching files in the folder
-                file_found = False
-                for fn in iglob(path.join(dir, "*." + ex)):
-                    yield fn
-                    file_found = True
+    if not path.isdir(dir):
+        return
 
-                # If no matching file go deeper until a leaf containing fast5 is found
-                if not file_found:
-                    for item in listdir(dir):
-                        for fn in recursive_file_gen(path.join(dir, item), ex):
-                            yield fn
-    else:  # Single file extension to look for
-        # In the case where the folder is a file
-        if path.isdir(dir):
-
-            # If matching files in the folder
-            file_found = False
-            for fn in iglob(path.join(dir, "*."+ext)):
-                yield fn
-                file_found = True
-
-            # If no matching file go deeper until a leaf containing fast5 is found
-            if not file_found:
-                for item in listdir(dir):
-                    for fn in recursive_file_gen(path.join(dir, item), ext):
-                        yield fn
+    for root, dirnames, filenames in walk(dir):
+        # Sorted, so converting a run twice gives the same summary twice.
+        dirnames.sort()
+        for fn in sorted(filenames):
+            if fn.endswith(suffixes):
+                yield path.join(root, fn)
 
 
 def get_logger(name=None, verbose=False, quiet=False):

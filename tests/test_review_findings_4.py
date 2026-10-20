@@ -542,3 +542,93 @@ class TestPdfPagesFitTheirPlot:
         heights = [float(page.mediabox.height)
                    for page in pypdf.PdfReader(str(out)).pages]
         assert max(heights) > 2 * min(heights)
+
+
+class TestConverterOptionsDoSomething:
+
+    def test_nested_barcode_folders_are_not_skipped(self, tmp_path):
+        """The walk stopped descending as soon as it found one matching
+        file, so a fastq_pass holding unclassified.fastq beside one folder
+        per barcode returned the unclassified reads and nothing else."""
+        from pycoQC.common import recursive_file_gen
+        root = tmp_path / "fastq_pass"
+        (root / "barcode01").mkdir(parents=True)
+        (root / "barcode02" / "deeper").mkdir(parents=True)
+        for name in ("unclassified.fastq", "barcode01/a.fastq",
+                     "barcode02/b.fastq", "barcode02/deeper/c.fq"):
+            (root / name).touch()
+
+        found = {p.rsplit("/", 1)[-1]
+                 for p in recursive_file_gen(str(root), ["fastq", "fq"])}
+        assert found == {"unclassified.fastq", "a.fastq", "b.fastq", "c.fq"}
+
+    def test_include_path_adds_the_column(self, tmp_path, fastq_dir):
+        from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
+        out = tmp_path / "s.txt"
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out),
+                             threads=3, include_path=True)
+        assert "path" in pd.read_csv(out, sep="\t").columns
+
+    def test_duplicate_ids_do_not_depend_on_chunk_boundaries(self, tmp_path):
+        """Records were collected into a dict keyed by read id, so repeats
+        merged, but only when they fell in the same block."""
+        from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
+        d = tmp_path / "fastq"
+        d.mkdir()
+        with open(d / "reads.fastq", "w") as fh:
+            for i in range(10):
+                fh.write("@dup runid=r1 ch=1 "
+                         "start_time=2024-01-01T00:00:0{}Z\n{}\n+\n{}\n".format(
+                             i, "ACGT" * 25, "I" * 100))
+            for i in range(5):
+                fh.write("@uniq{} runid=r1 ch=2 "
+                         "start_time=2024-01-01T00:01:0{}Z\n{}\n+\n{}\n".format(
+                             i, i, "ACGT" * 25, "I" * 100))
+        out = tmp_path / "s.txt"
+        Fastq_to_seq_summary(fastq_dir=str(d), seq_summary_fn=str(out),
+                             threads=3)
+
+        # Every record is written; pycoQC decides what to do about repeats.
+        assert len(pd.read_csv(out, sep="\t")) == 15
+        parser = pycoQC_parse(summary_file=str(out), filter_duplicated=True,
+                              min_barcode_percent=0, quiet=True)
+        assert len(parser.reads_df) == 6
+
+    def test_a_bam_with_no_reads_says_so(self, tmp_path):
+        """An empty bam_fail for a barcode that never failed reached pandas
+        as an empty frame and came back as KeyError: 'start_time'."""
+        pysam = pytest.importorskip("pysam")
+        from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary
+        d = tmp_path / "bam"
+        d.mkdir()
+        header = {"HD": {"VN": "1.6", "SO": "unknown"},
+                  "RG": [{"ID": "rg1", "DS": "runid=r1"}]}
+        with pysam.AlignmentFile(str(d / "empty.bam"), "wb", header=header):
+            pass
+
+        with pytest.raises(pycoQCError, match="No reads found"):
+            Bam_to_seq_summary(bam_dir=str(d),
+                               seq_summary_fn=str(tmp_path / "s.txt"),
+                               threads=3)
+
+    def test_the_per_user_config_is_read(self, tmp_path, monkeypatch):
+        """The command line help has always promised ~/.pycoQC, and nothing
+        ever looked there."""
+        import json
+        from pycoQC.pycoQC_report import pycoQC_report
+
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / ".pycoQC").write_text(json.dumps(
+            {"run_summary": {"plot_title": "Only this one"}}))
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr("os.path.expanduser",
+                            lambda p: p.replace("~", str(home)))
+
+        summary = write_summary(tmp_path / "s.txt", n=600)
+        parser = pycoQC_parse(summary_file=str(summary), quiet=True)
+        report = pycoQC_report(parser, pycoQC_plot(parser, quiet=True),
+                               quiet=True)
+
+        assert report._get_config() == {
+            "run_summary": {"plot_title": "Only this one"}}

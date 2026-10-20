@@ -21,8 +21,15 @@ def df_bases(summary):
 
 
 def one_record(header, seq="ACGTACGTAC", qual="IIIIIIIIII"):
-    return FastqParser.read_entry(
+    """The parsed record, keyed by read id.
+
+    read_entry itself returns one dict per record, in file order: keying by
+    id merged repeated ids, but only when they landed in the same block, so
+    the read count depended on where the block boundaries fell.
+    """
+    records = FastqParser.read_entry(
         [header + "\n", seq + "\n", "+\n", qual + "\n"], "pass")
+    return {record["read_id"]: record for record in records}
 
 
 class TestFastqHeaderDialects:

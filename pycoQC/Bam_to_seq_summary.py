@@ -41,9 +41,12 @@ class Bam_to_seq_summary():
                  basecall_id: int = 0,
                  verbose_level: int = 0,
                  include_path: bool = False,
-                 fields: list = ("read_id", "run_id", "channel", "start_time", "gc_percent",
-                                 "sequence_length_template", "mean_qscore_template",
-                                 "calibration_strand_genome_template", "barcode_arrangement")):
+                 # Everything the BAM carries, by default. The old default
+                 # named a subset which, now that it is honoured, would drop
+                 # the flow cell, the device and the run start time that the
+                 # report describes the run with, and would name a
+                 # calibration column that no BAM has.
+                 fields: list = None):
         """
         * bam_dir
             Directory containing bamfiles. Can contain multiple subdirectories
@@ -54,11 +57,12 @@ class Bam_to_seq_summary():
         * threads
             Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3(default = 4)
         * fields
-            list of field names corresponding to attributes to try to fetch from the bam files. List a valid field names:
-            mean_qscore_template, sequence_length_template, called_events, skip_prob, stay_prob, step_prob, strand_score, read_id, start_time,
-            duration, start_mux, read_number, channel, channel_digitisation, channel_offset, channel_range, channel_sampling,
-            run_id, sample_id, device_id, protocol_run, flow_cell, calibration_strand, calibration_strand, calibration_strand,
-            calibration_strand, barcode_arrangement, barcode_full, barcode_score, gc_percent
+            Columns to keep in the summary. None, the default, writes every
+            field the bam files carry: run_id, channel, barcode_arrangement,
+            sequence_length_template, mean_qscore_template, gc_percent,
+            start_time, passes_filtering, flowcell_id, device_id,
+            dorado_model, filename, sample_id and run_start_time. Naming a
+            field that no bam carries is reported rather than ignored.
         * basecall_id
             id of the basecalling group. By default, leave to 0, but if you perform multiple basecalling on the same bam files,
             this can be used to indicate the corresponding group(1, 2 ...)
@@ -91,19 +95,43 @@ class Bam_to_seq_summary():
         self.include_path = include_path
         self.verbose_level = verbose_level
 
+        # A BAM holds one basecall per record, not numbered groups the way a
+        # FAST5 does, so there is nothing for this to select. It used to be
+        # accepted and ignored in silence.
+        if basecall_id:
+            logger.warning(
+                "WARNING: --basecall_id has no meaning for BAM input and is "
+                "ignored; it selects one of several basecall groups inside a "
+                "FAST5.")
+
         # List bam files in folder
         bam_list = self.list_bam(bam_dir, self.max_bam)
         print('Found {} bam files to process'.format(len(bam_list)))
 
         # Fetch relevant info from bam files in parallel
         master_bam_dict = dict()
+        repeated = 0
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             for results in list(tqdm(executor.map(Bam_to_seq_summary.read_bam, bam_list),
                                      total=len(bam_list))):
+                # Reads are collected by id, so a read present in two files
+                # is written once. That is the right answer for a directory
+                # holding both an aligned and an unaligned copy of a run, but
+                # it used to happen in silence and the read count simply came
+                # out lower than the files suggested.
+                repeated += len(set(results).intersection(master_bam_dict))
                 master_bam_dict.update(results)
 
+        if repeated:
+            logger.warning(
+                "WARNING: {:,} read id(s) appear in more than one bam file and "
+                "were written once. Check whether the directory holds the same "
+                "run twice.".format(repeated))
+
         print('Writing "sequencing_summary" file...')
-        Bam_to_seq_summary.write_seq_summary(master_bam_dict, self.seq_summary_fn)
+        Bam_to_seq_summary.write_seq_summary(
+            master_bam_dict, self.seq_summary_fn, fields=self.fields,
+            include_path=self.include_path)
 
         print('Done')
 
@@ -293,19 +321,52 @@ class Bam_to_seq_summary():
                 entry_dict[read_id]['filename'] = file_name
                 entry_dict[read_id]['sample_id'] = sample_id
                 entry_dict[read_id]['run_start_time'] = run_start
+                entry_dict[read_id]['path'] = os.path.abspath(bam_file)
 
         return entry_dict
 
     @staticmethod
-    def write_seq_summary(bam_dict, output_file):
+    def write_seq_summary(bam_dict, output_file, fields=None,
+                          include_path=False):
         """
         Mono-threaded Worker writing the sequencing summary file
+
+        * fields
+            Columns to keep, read_id aside. None writes everything a BAM
+            carries. Both this and include_path were stored and never read,
+            so --fields and --include_path were accepted and did nothing.
+        * include_path
+            Keep the path of the file each read came from.
         """
         logger.debug("[WRITER] Write data to file")
+
+        # A directory can hold a bam with nothing in it: an empty bam_fail
+        # for a barcode that never failed, for instance. That used to reach
+        # pandas as an empty frame and come back as KeyError: 'start_time'.
+        if not bam_dict:
+            raise pycoQCError(
+                "No reads found in the bam file(s). The files were read but "
+                "hold no primary alignments.")
 
         # Convert dictionary to dataframe
         df = pd.DataFrame.from_dict(bam_dict, orient='index')
         df.index.names = ['read_id']
+
+        if fields:
+            wanted = [f for f in fields if f != "read_id"]
+            missing = [f for f in wanted if f not in df.columns]
+            if missing:
+                logger.warning(
+                    "WARNING: a BAM carries no {}, so {} left out of the "
+                    "summary".format(
+                        "field called" if len(missing) == 1 else "fields called",
+                        ", ".join(missing)))
+            keep = [f for f in wanted if f in df.columns]
+            if include_path and "path" in df.columns and "path" not in keep:
+                keep.append("path")
+            df = df[keep]
+        elif not include_path:
+            df = df.drop(columns="path", errors="ignore")
 
         # Express read start times as seconds since their own run began. A
         # directory can hold several runs, and counting from the first read

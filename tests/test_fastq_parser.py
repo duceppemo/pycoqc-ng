@@ -57,7 +57,8 @@ class TestHelpers:
         for read_id, seq, qual in reads[:5]:
             block += [f"@{read_id} runid=r1 ch=1 start_time=2022-06-27T23:00:28Z\n",
                       seq + "\n", "+\n", qual + "\n"]
-        parsed = FastqParser.read_entry(block, "pass")
+        parsed = {record["read_id"]: record
+                  for record in FastqParser.read_entry(block, "pass")}
         assert len(parsed) == 5
         for read_id, seq, qual in reads[:5]:
             assert parsed[read_id]["sequence_length_template"] == len(seq)
@@ -118,7 +119,7 @@ class TestTruncatedInput:
                  "ACGT\n"]
         with caplog.at_level("WARNING"):
             parsed = FastqParser.read_entry(block, "pass")
-        assert set(parsed) == {"r1"}
+        assert [r["read_id"] for r in parsed] == ["r1"]
         assert "Truncated fastq record" in caplog.text
 
     def test_complete_blocks_do_not_warn(self, caplog):
@@ -126,5 +127,5 @@ class TestTruncatedInput:
                  "ACGT\n", "+\n", "IIII\n"]
         with caplog.at_level("WARNING"):
             parsed = FastqParser.read_entry(block, "pass")
-        assert set(parsed) == {"r1"}
+        assert [r["read_id"] for r in parsed] == ["r1"]
         assert "Truncated" not in caplog.text

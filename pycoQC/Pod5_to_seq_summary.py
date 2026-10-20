@@ -76,6 +76,14 @@ class Pod5_to_seq_summary():
         self.include_path = include_path
         self.verbose_level = verbose_level
 
+        # POD5 holds signal, not basecall groups, so there is nothing for
+        # this to select. It used to be accepted and ignored in silence.
+        if basecall_id:
+            logger.warning(
+                "WARNING: --basecall_id has no meaning for POD5 input and is "
+                "ignored; it selects one of several basecall groups inside a "
+                "FAST5.")
+
         # Define processes
         pod5_list = Pod5_to_seq_summary.list_pod5(self.pod5_dir, self.max_pod5)
         print('Found {} pod5 files to process'.format(len(pod5_list)))
@@ -88,7 +96,9 @@ class Pod5_to_seq_summary():
                 master_pod5_dict.update(results)
 
         print('Writing "sequencing_summary" file...')
-        Pod5_to_seq_summary.write_seq_summary(master_pod5_dict, self.seq_summary_fn)
+        Pod5_to_seq_summary.write_seq_summary(
+            master_pod5_dict, self.seq_summary_fn,
+            include_path=self.include_path)
 
         # logger.info("Start processing pod5 files")
         # # Print final
@@ -196,21 +206,29 @@ class Pod5_to_seq_summary():
                      "sequencing_kit": sequencing_kit,
                      "device_id": device,
                      "software": software,
+                     "path": os.path.abspath(pod5_file),
                      }
                 pod5_dict[read_id] = d
 
         return pod5_dict
 
     @staticmethod
-    def write_seq_summary(pod5_dict, output_file):
+    def write_seq_summary(pod5_dict, output_file, include_path=False):
         """
         Mono-threaded Worker writing the sequencing summary file
+
+        * include_path
+            Keep the path of the file each read came from. This was stored
+            and never read, so --include_path did nothing.
         """
         logger.debug("[WRITER] Write data to file")
 
         # Convert dictionary to dataframe
         df = pd.DataFrame.from_dict(pod5_dict, orient='index')
         df.index.names = ['read_id']
+
+        if not include_path:
+            df = df.drop(columns="path", errors="ignore")
 
         # A POD5 file holds raw signal, not basecalls, so there is no read
         # length and no quality score to report. Earlier versions filled those

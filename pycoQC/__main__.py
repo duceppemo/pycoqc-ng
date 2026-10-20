@@ -177,9 +177,14 @@ def main_Fast5_to_seq_summary(args=None):
                         help=textwrap.dedent("ID of the basecalling group. By default leave to 0, but if you perform "
                                              "multiple basecalling on the same fast5 files, this can be used to "
                                              "indicate the corresponding group(1, 2 ...)(default: %(default)s)"))
+    # Kept in step with Fast5_to_seq_summary's own default. Four run level
+    # fields were missing here, so a summary built from the command line
+    # described the reads but not the run, and the report's run panel was
+    # empty while the same call from Python filled it.
     parser.add_argument("--fields", type=str, nargs="+",
                         default=["read_id", "run_id", "channel", "start_time", "sequence_length_template",
-                                 "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement"],
+                                 "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement",
+                                 "sample_id", "device_id", "flow_cell_id", "exp_start_time"],
                         help="List of field names corresponding to attributes to try to fetch from the fast5 "
                              "files(default: %(default)s)")
     parser.add_argument("--include_path", action='store_true', default=False,
@@ -326,12 +331,9 @@ def main_Bam_to_seq_summary(args=None):
                         help=textwrap.dedent("ID of the basecalling group. By default leave to 0, but if you perform "
                                              "multiple basecalling on the same bam files, this can be used to indicate "
                                              "the corresponding group(1, 2 ...)(default: %(default)s)"))
-    parser.add_argument("--fields", type=str, nargs="+",
-                        default=["read_id", "run_id", "channel", "start_time", "gc_percent", "sequence_length_template",
-                                 "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering"],
-                        help="List of field names corresponding to attributes to try to fetch from the bam "
-                             "files(default: %(default)s)")
+    parser.add_argument("--fields", type=str, nargs="+", default=None,
+                        help="Columns to keep in the summary. By default every field the bam files "
+                             "carry is written")
     parser.add_argument("--include_path", action='store_true', default=False,
                         help="If given, the absolute path to the corresponding file is added in an extra "
                              "column(default: %(default)s)")

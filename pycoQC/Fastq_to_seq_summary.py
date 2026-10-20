@@ -75,13 +75,19 @@ class FastqParser(object):
         itself ended mid-record. That read is skipped, with a warning, rather
         than silently dropped.
         """
-        my_dict = dict()
+        # A list, not a dict keyed by read id. Keying by id silently merged
+        # repeated ids, but only when they fell in the same block, so the
+        # read count depended on where the block boundaries happened to
+        # land. Every record is kept and pycoQC's --filter_duplicated
+        # decides what to do about repeats.
+        my_dict = list()
         lines = list()
         for line in entry:
             line = line.rstrip()
             lines.append(line)
             if len(lines) == FastqParser.LINES_PER_READ:
-                my_dict.update(FastqParser.single_fastq_entry_to_dict(lines, flag))
+                my_dict.extend(
+                    FastqParser.single_fastq_entry_to_dict(lines, flag).values())
                 lines = list()
         if lines:
             logger.warning(
@@ -359,9 +365,7 @@ class Fastq_to_seq_summary():
                 "sequence_length_template", "mean_qscore_template", "gc_percent"
                 "calibration_strand_genome_template", "barcode_arrangement"
                 """
-                value_dict = FastqParser.read_entry(chunk, flag)
-
-                for read_id, read_info_dict in value_dict.items():
+                for read_info_dict in FastqParser.read_entry(chunk, flag):
                     # A fresh dict per read: the queue serialises entries in a
                     # background thread, so a shared dict would be mutated
                     # before it is pickled.
@@ -410,6 +414,10 @@ class Fastq_to_seq_summary():
 
             # Transform collected data to dataframe and write to file
             logger.debug("[WRITER] Write data to file")
+            if not l:
+                raise pycoQCError(
+                    "No reads found in the fastq file(s). The files were read "
+                    "but hold no records.")
             df = pd.DataFrame(l)
 
             # start_time is only present if it was asked for, and --fields
