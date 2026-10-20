@@ -288,8 +288,11 @@ class pycoQC_report ():
                 self.logger.info("\tRunning method {}".format(method_name))
                 self.logger.debug("\t{} ({})".format(method_name, method_args))
 
-                # Store plot title for HTML title and remove from data passed to plotly
-                plot_title = method_args["plot_title"]
+                # Store plot title for HTML title and remove from data
+                # passed to plotly. A user written config entry need not
+                # carry one, and requiring it raised an uncaught KeyError.
+                method_args = dict(method_args)
+                plot_title = method_args.pop("plot_title", method_name)
                 method_args["plot_title"] = ""
 
                 # Get method and generate plot

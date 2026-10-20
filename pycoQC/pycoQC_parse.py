@@ -137,6 +137,16 @@ class pycoQC_parse():
                 "calibration_strand_genome_template": "calibration",
                 "barcode_arrangement": "barcode",
                 "gc_percent": "%GC"}
+            # A 1D2 summary carries both the template and the 2d column, and
+            # renaming both onto read_len left the frame with duplicate
+            # labels, which pandas refuses to reindex. The template column is
+            # the one pycoQC reports on, so drop the 2d partner when both are
+            # present rather than colliding.
+            for template, two_d in (("sequence_length_template", "sequence_length_2d"),
+                                    ("mean_qscore_template", "mean_qscore_2d")):
+                if template in df and two_d in df:
+                    df = df.drop(columns=two_d)
+
             df = df.rename(columns=rename_colmanes)
 
             # Verify the required and optional columns, Drop unused fields
@@ -291,6 +301,14 @@ class pycoQC_parse():
 
         # Merge df and fill in missing barcode values
         if not barcode_reads_df.empty:
+            # A summary written with barcoding already has a barcode column,
+            # and merging another one left barcode_x and barcode_y rather
+            # than barcode, so the next line raised KeyError. The separate
+            # file is the more specific source, so it wins.
+            if "barcode" in df:
+                self.logger.debug(
+                    "\tBarcodes in the summary are replaced by the barcode file")
+                df = df.drop(columns="barcode")
             df = pd.merge(df, barcode_reads_df, on="read_id", how="left")
             # Same here: reads absent from the barcode file kept a missing
             # barcode instead of being marked unclassified.
@@ -396,8 +414,16 @@ class pycoQC_parse():
         for runid in runid_list:
             self.logger.info("\t\tProcessing reads with Run_ID {} / time offset: {}".format(
                 runid, increment_time))
-            max_val = df['start_time'][df["run_id"] == runid].max()
-            df.loc[df["run_id"] == runid, 'start_time'] += increment_time
+            selected = df["run_id"] == runid
+            if not selected.any():
+                # max() of nothing is NaN, and adding it to the offset made
+                # every later run's start_time NaN, silently emptying the
+                # time plots instead of reporting the unknown id.
+                self.logger.info(
+                    "\t\tNo reads found for Run_ID {}".format(runid))
+                continue
+            max_val = df['start_time'][selected].max()
+            df.loc[selected, 'start_time'] += increment_time
             runid_start[runid] = increment_time
             increment_time += max_val+1
         df = df.sort_values("start_time")

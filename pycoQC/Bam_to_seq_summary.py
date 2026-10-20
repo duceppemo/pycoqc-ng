@@ -178,10 +178,23 @@ class Bam_to_seq_summary():
             # Read groups are a property of the file, so parse them once
             # rather than re-parsing the header text for every read.
             read_groups = Bam_to_seq_summary.parse_read_groups(fh.header)
+            # Must carry every key the loop below reads, or a BAM whose
+            # reads have no matching @RG raises KeyError instead of the
+            # blanks the docstring promises.
             blank_group = {"run_id": "", "flowcell_id": "", "device_id": "",
-                           "dorado_model": "", "barcode": "", "sample_id": ""}
+                           "dorado_model": "", "barcode": "", "sample_id": "",
+                           "run_start_time": ""}
 
             for bam_entry in fh.fetch(until_eof=True):
+                # One read can have several records once the BAM is aligned.
+                # Only the primary alignment carries the full sequence: a
+                # supplementary record is hard clipped, and a secondary one
+                # often has no SEQ at all. Counting them overwrote the read
+                # with a fragment of itself, or crashed on the missing
+                # sequence.
+                if bam_entry.is_secondary or bam_entry.is_supplementary:
+                    continue
+
                 bam_dict = dict()
                 read_id = bam_entry.query_name
 
@@ -247,10 +260,14 @@ class Bam_to_seq_summary():
                 # Average phred score
                 average_phred = round(mean_qscore(qual), 2)
 
-                # %GC
-                g_count = float(seq.count('G'))
-                c_count = float(seq.count('C'))
-                gc = round((g_count + c_count) / float(length) * 100, 2)
+                # %GC. A record can carry no sequence, and a zero length
+                # read is valid input, so neither should divide by zero or
+                # count characters of None.
+                if seq and length:
+                    gc = round((seq.count('G') + seq.count('C'))
+                               / float(length) * 100, 2)
+                else:
+                    gc = 0.0
 
                 # Output everything in a dictionary
                 entry_dict[read_id] = dict()

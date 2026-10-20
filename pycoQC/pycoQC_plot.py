@@ -433,7 +433,10 @@ class pycoQC_plot():
             height=height,
             plot_title=plot_title,
             header=["Status", "Reads", "Bases", "Mean Coverage", "N50", "Median Read Length", "Median Identity Freq"],
-            data_format=["", ",", ",", ".1f", ",", ".1r", ".1f"],
+            # d3's "r" rounds to significant digits, so ".1r" turned a median
+            # read length of 4,732 into 5,000. Identity is a fraction between
+            # 0 and 1, which ".1f" rendered as a flat 1.0.
+            data_format=["", ",", ",", ".1f", ",", ",", ".4f"],
             data=[*zip(*data)])
 
         return fig
@@ -561,13 +564,20 @@ class pycoQC_plot():
 
     def __summary_barcode_data(self, df_level):
 
-        # Get data and scaling factor
+        # Get data and scaling factor. Plots are built from a sample of at
+        # most `sample` reads, so counts taken from it have to be scaled back
+        # up to the whole run, as the over-time and channel plots already do.
+        # Without it a million read run reported its barcodes as if only
+        # 100,000 reads had been sequenced.
         if df_level == "pass":
             df = self.pass_sample_df
+            scaling_factor = self.pass_scaling_factor
         elif df_level == "fail":
             df = self.fail_sample_df
+            scaling_factor = self.fail_scaling_factor
         else:
             df = self.all_sample_df
+            scaling_factor = self.all_scaling_factor
 
         # Extract data
         data = []
@@ -580,8 +590,10 @@ class pycoQC_plot():
             df1 = df[df['barcode'] == bc]
             data.append([
                 bc,
-                self._basecalled_reads(df1),
-                self._basecalled_bases(df1),
+                int(round(self._basecalled_reads(df1) * scaling_factor)),
+                int(round(self._basecalled_bases(df1) * scaling_factor)),
+                # Medians and N50 are distribution statistics, so the sample
+                # estimates them directly and they are not scaled.
                 self._basecall_N50(df1),
                 self._basecall_median_read_len(df1),
                 self._basecall_median_read_qscore(df1)])
@@ -1791,17 +1803,22 @@ class pycoQC_plot():
         """Private function preparing data for barcode_counts"""
         self.logger.debug("\t\tPreparing data for {} reads".format(df_level))
 
-        # Get data
+        # Get data and scaling factor
         if df_level == "pass":
             df = self.pass_sample_df
+            scaling_factor = self.pass_scaling_factor
         elif df_level == 'fail':
             df = self.fail_sample_df
+            scaling_factor = self.fail_scaling_factor
         else:
             df = self.all_sample_df
+            scaling_factor = self.all_scaling_factor
 
-        # TODO: somehow "all" and "pass" are inverted
+        # Scaled back up to the whole run: the pie's percentages were right
+        # either way, but its counts were sample counts.
         counts = df["barcode"].value_counts()
         counts = counts.sort_index()
+        counts = (counts * scaling_factor).round().astype("int64")
 
         # Extract label and values
         data_dict = dict(

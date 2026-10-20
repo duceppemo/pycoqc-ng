@@ -160,10 +160,12 @@ class FastqParser(object):
         # Average phred score
         average_phred = round(mean_qscore(qual, phred33=True), 2)
 
-        # %GC
-        g_count = float(seq.count('G'))
-        c_count = float(seq.count('C'))
-        gc = round((g_count + c_count) / float(length) * 100, 2)
+        # %GC. A zero length record is valid fastq, and dividing by its
+        # length killed the conversion of every remaining file.
+        if length:
+            gc = round((seq.count('G') + seq.count('C')) / float(length) * 100, 2)
+        else:
+            gc = 0.0
 
         # Flag
         if flag == 'pass':
@@ -399,14 +401,19 @@ class Fastq_to_seq_summary():
             logger.debug("[WRITER] Write data to file")
             df = pd.DataFrame(l)
 
-            # Keep the absolute start of the run before the per read times
-            # become seconds elapsed, so the report can say when it ran.
-            absolute = pd.to_datetime(df['start_time'], errors="coerce")
-            if absolute.notna().any():
-                df['run_start_time'] = absolute.min().isoformat()
+            # start_time is only present if it was asked for, and --fields
+            # lets a caller leave it out, which used to raise KeyError once
+            # every file had already been parsed.
+            if 'start_time' in df:
+                # Keep the absolute start of the run before the per read
+                # times become seconds elapsed, so the report can say when
+                # it ran.
+                absolute = pd.to_datetime(df['start_time'], errors="coerce")
+                if absolute.notna().any():
+                    df['run_start_time'] = absolute.min().isoformat()
 
-            # Express read start times as seconds since the first read
-            df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
+                # Express read start times as seconds since the first read
+                df['start_time'] = start_time_to_elapsed_seconds(df['start_time'])
 
 
             df.to_csv(self.seq_summary_fn, sep="\t", index=False)

@@ -117,10 +117,12 @@ def check_arg(arg_name, arg_val, required_type, allow_none=True, min=None, max=N
                 arg_name, arg_val, required_type.__name__))
 
     if required_type in [float, int]:
-        if min and arg_val < min:
+        # A bound of 0 is falsy, so testing truthiness skipped it entirely
+        # and a negative min_pass_len or min_barcode_percent was accepted.
+        if min is not None and arg_val < min:
             raise Exception("Argument `{}` value `{}` is too low. Minimal value: {}".format(
                 arg_name, arg_val, min))
-        if max and arg_val > max:
+        if max is not None and arg_val > max:
             raise Exception("Argument `{}` value `{}` is too high. Maximal value: {}".format(
                 arg_name, arg_val, max))
 
@@ -451,7 +453,9 @@ def expand_file_names(fn, bam_check=False):
             with ps.AlignmentFile(f, "rb") as bam:
                 if not bam.has_index():
                     raise pycoQCError("No index found for bam file: {}. Please index with samtools index".format(f))
-                if not bam.header['HD']['SO'] == 'coordinate':
+                # A BAM may carry no @HD line at all, which raised a bare
+                # KeyError instead of saying what was wrong with the file.
+                if bam.header.to_dict().get("HD", {}).get("SO") != "coordinate":
                     raise pycoQCError("Bam file not sorted: {}. Please sort with samtools sort".format(f))
     return fn_list
 
