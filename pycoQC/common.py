@@ -3,6 +3,7 @@
 # Standard library imports
 from datetime import datetime as _datetime
 from os import access, R_OK, listdir, path, makedirs, walk
+from pathlib import Path
 import inspect
 from glob import glob
 import logging
@@ -86,6 +87,27 @@ def path_has_token(path, token):
     """
     words = _TOKEN_SPLIT.split(str(path).lower())
     return token.lower() in words
+
+
+def path_below(path, root):
+    """The part of `path` that lies under `root`.
+
+    Pass and fail are read from where the basecaller put a file, and the
+    basecaller only chose the part of the path below the directory it was
+    given. Reading the whole absolute path meant that a run stored under a
+    directory someone had named for a failed experiment came out as a run
+    of failing reads. Where the two are unrelated the file name is used,
+    which is never worse than the full path.
+
+    * path
+        A file path.
+    * root
+        The directory the converter was pointed at.
+    """
+    try:
+        return str(Path(path).resolve().relative_to(Path(root).resolve()))
+    except (ValueError, OSError):
+        return str(Path(path).name)
 
 
 def parse_timestamp(value):

@@ -84,7 +84,8 @@ class pycoQC_plot():
         # on, so the basecaller's own verdict is used where it recorded one:
         # MinKNOW sorts its files into pass and fail folders, and the POD5
         # and FAST5 converters carry that through as passes_filtering.
-        self.pass_df = self._pass_reads(min_pass_qual, min_pass_len)
+        passing = self._passing_mask(min_pass_qual, min_pass_len)
+        self.pass_df = self.all_df[passing]
         if sample and len(self.pass_df) > sample:
             self.pass_sample_df = self.pass_df.sample(n=sample, random_state=SEED)
             self.pass_scaling_factor = len(self.pass_df) / sample
@@ -97,8 +98,11 @@ class pycoQC_plot():
         else:
             self.logger.info("\tFound {:,} pass reads".format(len(self.pass_df)))
 
-        # Fail df
-        self.fail_df = self.all_df.drop(index=self.pass_df.index)
+        # Fail df. Selected by mask rather than by dropping the passing
+        # index labels: read ids are not guaranteed unique, and dropping a
+        # repeated label takes every row that carries it, which emptied the
+        # fail set on a run whose files repeat ids.
+        self.fail_df = self.all_df[~passing]
         if sample and len(self.fail_df) > sample:
             self.fail_sample_df = self.fail_df.sample(n=sample, random_state=SEED)
             self.fail_scaling_factor = len(self.fail_df) / sample
@@ -107,21 +111,24 @@ class pycoQC_plot():
             self.fail_scaling_factor = 1
         self.logger.info("\tFound {:,} fail reads".format(len(self.fail_df)))
 
-    def _pass_reads(self, min_pass_qual, min_pass_len):
-        """The reads counted as passing, however this run records that."""
+    def _passing_mask(self, min_pass_qual, min_pass_len):
+        """Which reads count as passing, however this run records that."""
         if self.has_basecalls:
-            return self.all_df.query("mean_qscore>={} and read_len>={}".format(
-                min_pass_qual, min_pass_len))
+            return ((self.all_df["mean_qscore"] >= min_pass_qual)
+                    & (self.all_df["read_len"] >= min_pass_len))
 
         if "passes_filtering" in self.all_df:
             flag = self.all_df["passes_filtering"]
-            if flag.dtype != bool:
-                flag = flag.astype(str).str.strip().str.lower().isin(
-                    ("true", "1", "yes", "pass"))
-            return self.all_df[flag]
+            if flag.dtype == bool:
+                return flag
+            # A blank verdict means nothing judged this read, so it has not
+            # failed; counting it as a failure invented a fail count.
+            text = flag.astype(str).str.strip().str.lower()
+            passed = text.isin(("true", "1", "yes", "pass"))
+            return passed | flag.isna() | text.isin(("", "nan", "none"))
 
         # Nothing has judged these reads, so none of them has failed.
-        return self.all_df
+        return pd.Series(True, index=self.all_df.index)
 
     def __str__(self):
         m = ""
@@ -244,8 +251,26 @@ class pycoQC_plot():
 
     def _barcodes_count(self, df):
         counts = df["barcode"].value_counts()
-        counts = counts.sort_index()
+        counts = counts.reindex(self._barcode_order(counts.index))
         return counts.to_frame()
+
+    @staticmethod
+    def _barcode_order(labels):
+        """Barcode names in the order a reader expects them.
+
+        Barcodes are names, not numbers, so plain sorting put a Deepbinner
+        run's barcode 10 between 1 and 2. Anything numeric sorts by its
+        value and the rest alphabetically after it, which keeps
+        unclassified at the end.
+        """
+        def key(label):
+            text = str(label)
+            try:
+                return (0, float(text), "")
+            except ValueError:
+                return (1, 0.0, text)
+
+        return sorted(labels, key=key)
 
     def _level_dfs(self, df_level):
         """The whole frame and the sample drawn from it, for one read set.
@@ -679,12 +704,18 @@ class pycoQC_plot():
         # Extract data
         data = []
         i = 0
-        bc_list = sorted(df['barcode'].unique())
+        bc_list = self._barcode_order(df['barcode'].unique())
 
         for i, bc in enumerate(bc_list):
             # Extract data for barcode
             df1 = df[df['barcode'] == bc]
             sample1 = sample_df[sample_df['barcode'] == bc]
+            # A barcode with only a handful of reads can miss the sample
+            # entirely, and its row then showed a real read count beside a
+            # blank N50 and median. Such a barcode is small enough to
+            # measure in full.
+            if sample1.empty:
+                sample1 = df1
             data.append([
                 bc,
                 self._basecalled_reads(df1),
@@ -2076,7 +2107,8 @@ class pycoQC_plot():
         # a sample scaled back up, which was unbiased but noisy and did not
         # match the barcode table on the same page.
         df, _ = self._level_dfs(df_level)
-        counts = df["barcode"].value_counts().sort_index()
+        counts = df["barcode"].value_counts()
+        counts = counts.reindex(self._barcode_order(counts.index))
 
         # Extract label and values
         data_dict = dict(
@@ -2790,6 +2822,13 @@ class pycoQC_plot():
         nudge does. Equal values still need a width to be drawn at all.
         """
         if scale == "log":
+            # A log axis cannot place zero, and log10(0) is -inf, which made
+            # every edge NaN and emptied the histogram. Read lengths are
+            # filtered for this; durations are not, and a zero sample read
+            # is a real thing to find in a pod5.
+            if min_value <= 0:
+                min_value = max_value * 1e-6 if max_value > 0 else 1.0
+                max_value = max(max_value, min_value)
             if max_value <= min_value:
                 return np.logspace(np.log10(min_value * 0.95),
                                    np.log10(max_value * 1.05), nbins)

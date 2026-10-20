@@ -23,6 +23,7 @@ from tqdm import tqdm
 # Local imports
 from pycoQC.common import (
     dict_to_str,
+    path_below,
     path_has_token,
     mean_qscore,
     parse_timestamp,
@@ -59,13 +60,16 @@ class FastqParser(object):
         return open(fastq_fn, "r")
 
     @staticmethod
-    def pass_fail_flag(fastq_fn):
+    def pass_fail_flag(fastq_fn, root=None):
         """Basecallers write passing and failing reads to separate paths
 
-        Matched on whole words, so a run kept under a directory such as
-        failsafe_backup is not read as a directory of failing reads.
+        Matched on whole words, and only below the directory the converter
+        was given, since that is the only part the basecaller chose. A run
+        kept under a directory such as failsafe_backup, or one called after
+        a failed experiment, is not a directory of failing reads.
         """
-        return 'fail' if path_has_token(fastq_fn, 'fail') else 'pass'
+        location = path_below(fastq_fn, root) if root else fastq_fn
+        return 'fail' if path_has_token(location, 'fail') else 'pass'
 
     @staticmethod
     def read_entry(entry, flag):
@@ -327,7 +331,7 @@ class Fastq_to_seq_summary():
             my_ext = ['fq', 'fq.gz', 'fastq', 'fastq.gz']
             i = 0
             for fastq_fn in recursive_file_gen(dir=self.fastq_dir, ext=my_ext):
-                flag = FastqParser.pass_fail_flag(fastq_fn)
+                flag = FastqParser.pass_fail_flag(fastq_fn, self.fastq_dir)
                 with FastqParser.open_fastq(fastq_fn) as fastq_fh:
                     chunk_lines = self.READS_PER_CHUNK * FastqParser.LINES_PER_READ
                     for chunk in FastqParser.make_chunks(fastq_fh, chunk_lines):

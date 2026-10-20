@@ -182,9 +182,11 @@ def main_Fast5_to_seq_summary(args=None):
     # described the reads but not the run, and the report's run panel was
     # empty while the same call from Python filled it.
     parser.add_argument("--fields", type=str, nargs="+",
-                        default=["read_id", "run_id", "channel", "start_time", "sequence_length_template",
-                                 "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement",
-                                 "sample_id", "device_id", "flow_cell_id", "exp_start_time"],
+                        default=["read_id", "run_id", "channel", "start_time", "duration",
+                                 "sequence_length_template", "mean_qscore_template",
+                                 "calibration_strand_genome_template", "barcode_arrangement",
+                                 "passes_filtering", "sample_id", "device_id", "flow_cell_id",
+                                 "exp_start_time"],
                         help="List of field names corresponding to attributes to try to fetch from the fast5 "
                              "files(default: %(default)s)")
     parser.add_argument("--include_path", action='store_true', default=False,

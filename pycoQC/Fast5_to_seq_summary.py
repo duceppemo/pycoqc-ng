@@ -20,7 +20,9 @@ import h5py
 from tqdm import tqdm
 
 # Local imports
-from pycoQC.common import dict_to_str, pycoQCError, recursive_file_gen
+from pycoQC.common import (
+    dict_to_str, path_below, path_has_token, pycoQCError,
+    recursive_file_gen)
 
 # Logger setup
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -77,10 +79,11 @@ class Fast5_to_seq_summary ():
                  verbose_level: int = 0,
                  include_path: bool = False,
                  fields: list = (
-                         "read_id", "run_id", "channel", "start_time",
+                         "read_id", "run_id", "channel", "start_time", "duration",
                          "sequence_length_template", "mean_qscore_template",
                          "calibration_strand_genome_template", "barcode_arrangement",
-                         "sample_id", "device_id", "flow_cell_id", "exp_start_time")):
+                         "passes_filtering", "sample_id", "device_id",
+                         "flow_cell_id", "exp_start_time")):
         """
         * fast5_dir
             Directory containing fast5 files. Can contain multiple subdirectories
@@ -118,7 +121,10 @@ class Fast5_to_seq_summary ():
         if threads < 3:
             raise pycoQCError("At least 3 threads required")
         for field in fields:
-            if field not in self.attrs_grp_dict:
+            # passes_filtering is not an attribute of anything: a FAST5 does
+            # not record it, so it is read from the path the basecaller
+            # wrote the file to.
+            if field not in self.attrs_grp_dict and field != "passes_filtering":
                 raise pycoQCError("Field {} is not valid, please choose among the following valid fields: {}".format(
                     field, ",".join(self.attrs_grp_dict.keys())))
 
@@ -248,12 +254,25 @@ class Fast5_to_seq_summary ():
                         # Fetch required fields is available
                         for field in self.fields:
 
-                            # Special case for start time
-                            if field == "start_time":
-                                start_time = self._get_h5_attrs(
+                            # Neither of these is read straight from the
+                            # file: pass or fail is not in a FAST5 at all,
+                            # and the two times are recorded in samples.
+                            if field == "passes_filtering":
+                                # fast5_pass and fast5_fail is how the
+                                # basecaller lays its output out, matched on
+                                # whole words so /data/failover/fast5_pass
+                                # does not read as failing.
+                                d[field] = not path_has_token(
+                                    path_below(fast5_fn, self.fast5_dir), "fail")
+                                c["fields_found"][field] += 1
+                                continue
+
+                            # Special case for start time and duration
+                            if field in ("start_time", "duration"):
+                                samples = self._get_h5_attrs(
                                     fp=h5_fp,
-                                    grp=grp_dict[self.attrs_grp_dict["start_time"]["grp"]],
-                                    attrs=self.attrs_grp_dict["start_time"]["attrs"])
+                                    grp=grp_dict[self.attrs_grp_dict[field]["grp"]],
+                                    attrs=self.attrs_grp_dict[field]["attrs"])
                                 sampling_rate = self._get_h5_attrs(
                                     fp=h5_fp,
                                     grp=grp_dict[self.attrs_grp_dict["channel_sampling_rate"]["grp"]],
@@ -262,8 +281,12 @@ class Fast5_to_seq_summary ():
                                 # as missing: the first read of a file starts
                                 # at sample 0, and testing truthiness dropped
                                 # it from every summary.
-                                if start_time is not None and sampling_rate:
-                                    d[field] = int(start_time/sampling_rate)
+                                if samples is not None and sampling_rate:
+                                    # Seconds elapsed for the start, seconds
+                                    # in the pore for the duration.
+                                    value = samples / sampling_rate
+                                    d[field] = (int(value) if field == "start_time"
+                                                else round(value, 4))
                                     c["fields_found"][field] += 1
                                 else:
                                     c["fields_not_found"][field] += 1

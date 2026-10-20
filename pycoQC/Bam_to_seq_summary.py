@@ -3,6 +3,7 @@
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 # Third party imports
 import pandas as pd
@@ -12,6 +13,7 @@ import pysam
 # Local imports
 from pycoQC.common import (
     mean_qscore,
+    path_below,
     path_has_token,
     parse_timestamp,
     pycoQCError,
@@ -112,7 +114,9 @@ class Bam_to_seq_summary():
         master_bam_dict = dict()
         repeated = 0
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            for results in list(tqdm(executor.map(Bam_to_seq_summary.read_bam, bam_list),
+            read_one = partial(Bam_to_seq_summary.read_bam,
+                               bam_dir=self.bam_dir)
+            for results in list(tqdm(executor.map(read_one, bam_list),
                                      total=len(bam_list))):
                 # Reads are collected by id, so a read present in two files
                 # is written once. That is the right answer for a directory
@@ -199,7 +203,7 @@ class Bam_to_seq_summary():
         return groups
 
     @staticmethod
-    def read_bam(bam_file):
+    def read_bam(bam_file, bam_dir=None):
 
         logger.debug("[WORKER] Start processing bam files")
 
@@ -284,7 +288,11 @@ class Bam_to_seq_summary():
                 # the path of the BAM itself, which carries pass or fail in the
                 # directory name the basecaller writes.
                 file_name = bam_dict.get('fn') or os.path.basename(bam_file)
-                location = file_name if bam_dict.get('fn') else bam_file
+                # Only the part of the path below the directory given, since
+                # that is the part the basecaller chose; an unrelated parent
+                # directory with "fail" in its name is not a verdict.
+                location = (file_name if bam_dict.get('fn')
+                            else path_below(bam_file, bam_dir))
 
                 # Flag, matched on whole words so a path such as
                 # /data/failover/bam_pass is not read as failing.

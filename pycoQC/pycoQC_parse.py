@@ -24,6 +24,22 @@ from pycoQC.common import (
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def _as_labels(values):
+    """Barcodes as names, without turning 6 into "6.0".
+
+    A column of bare numbers, as Deepbinner writes, is typed as a number,
+    and once a merge introduces a missing value it becomes a float, so the
+    plain string of it carries a decimal point into the report, the plot
+    and the name of the file Barcode_split writes.
+    """
+    if pd.api.types.is_float_dtype(values):
+        whole = values.dropna() % 1 == 0
+        if whole.all():
+            values = values.astype("Int64")
+    return values.astype("object").where(
+        values.isna(), values.astype(str).str.strip())
+
+
 class pycoQC_parse():
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~INIT METHOD~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -279,7 +295,7 @@ class pycoQC_parse():
             # report, names its output file sequencing_summary_6.0.txt, and
             # makes sorting the labels raise. A barcode is a name, not a
             # quantity, so it is read as one.
-            df["barcode"] = df["barcode"].astype(str).str.strip()
+            df["barcode"] = _as_labels(df["barcode"])
             # Overlapping barcode files repeat read ids, and a left merge on
             # a duplicated key multiplies the read rather than failing, so
             # every count came out slightly high.
@@ -401,8 +417,7 @@ class pycoQC_parse():
         # Same reasoning as the barcode file: a summary whose barcodes are
         # numbers must not be typed as numbers.
         if "barcode" in df:
-            df["barcode"] = df["barcode"].astype("object").where(
-                df["barcode"].isna(), df["barcode"].astype(str).str.strip())
+            df["barcode"] = _as_labels(df["barcode"])
 
         if "barcode" in df and df["barcode"].isna().any():
             missing = int(df["barcode"].isna().sum())
@@ -587,7 +602,19 @@ class pycoQC_parse():
 
         # Save final df
         self.counter["Valid reads"] = len(df)
-        if "read_len" not in df:
+        # Both are needed for the basecall plots. One without the other is
+        # not a raw signal run, it is a summary that lost a column, and
+        # reporting it as if nothing had been basecalled would quietly drop
+        # the yield and the N50 of a run that has them.
+        missing = [c for c in ("read_len", "mean_qscore") if c not in df]
+        if len(missing) == 1:
+            raise pycoQCError(
+                "This summary has {} but no {}. Both are needed to report on "
+                "the reads. Check that the summary has not been trimmed, and "
+                "that every file given holds the same columns.".format(
+                    "read_len" if missing[0] == "mean_qscore" else "mean_qscore",
+                    missing[0]))
+        if missing:
             self.logger.warning(
                 "WARNING: no read length or quality score in this summary, so "
                 "nothing has been basecalled yet. The report will cover the "
