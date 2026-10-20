@@ -429,3 +429,166 @@ class TestFallbacksAreVisible:
                    template_file=str(tmp_path / "no_such_template.j2"),
                    quiet=True)
         assert "template file" in caplog.text.lower()
+
+
+class TestCoverageSpansWholeAlignments:
+    """An alignment used to be charged entirely to the bin its first base
+    fell in, which turned real coverage on a small reference into spikes."""
+
+    @staticmethod
+    def _truth(starts, ends, total_len, nbins):
+        import numpy as np
+        depth = np.zeros(int(total_len))
+        for s, e in zip(starts.astype(int), ends.astype(int)):
+            depth[s:e] += 1
+        edges = (np.arange(nbins + 1) * total_len / nbins).astype(int)
+        return np.array([depth[edges[i]:edges[i + 1]].mean()
+                         for i in range(nbins)])
+
+    def test_matches_per_base_coverage(self):
+        import numpy as np
+        rng = np.random.default_rng(0)
+        total_len, nbins = 30000, 500
+        sites = np.linspace(0, total_len - 1000, 30).astype(int)
+        starts = rng.choice(sites, 1000).astype(float)
+        ends = starts + 1000
+        got = pycoQC_plot._binned_coverage(starts, ends, total_len, nbins)
+        np.testing.assert_allclose(got, self._truth(starts, ends, total_len,
+                                                    nbins), atol=1e-9)
+
+    def test_amplicon_reference_is_not_all_spikes(self):
+        """The failure this replaces: 471 of 500 bins empty, peaks 17x the
+        true depth, while the overall coverage line still looked right."""
+        import numpy as np
+        rng = np.random.default_rng(0)
+        total_len, nbins = 30000, 500
+        sites = np.linspace(0, total_len - 1000, 30).astype(int)
+        starts = rng.choice(sites, 1000).astype(float)
+        got = pycoQC_plot._binned_coverage(starts, starts + 1000, total_len,
+                                           nbins)
+        assert (got > 0).sum() > nbins * 0.9
+        assert got.max() < 60
+
+    def test_total_bases_are_conserved(self):
+        import numpy as np
+        rng = np.random.default_rng(1)
+        total_len, nbins = 100000, 250
+        starts = rng.integers(0, total_len - 500, 400).astype(float)
+        ends = starts + rng.integers(100, 500, 400)
+        got = pycoQC_plot._binned_coverage(starts, ends, total_len, nbins)
+        assert got.sum() * (total_len / nbins) == pytest.approx(
+            float((ends - starts).sum()))
+
+    def test_alignment_inside_a_single_bin(self):
+        import numpy as np
+        got = pycoQC_plot._binned_coverage(np.array([0.0]), np.array([10.0]),
+                                           1000, 10)
+        assert got[0] == pytest.approx(0.1)
+        assert got[1:].sum() == 0
+
+    def test_alignment_spanning_everything(self):
+        import numpy as np
+        got = pycoQC_plot._binned_coverage(np.array([0.0]), np.array([1000.0]),
+                                           1000, 10)
+        np.testing.assert_allclose(got, 1.0)
+
+    def test_short_reference_bins_track_the_labels(self):
+        """Binning floor-divided a truncated step while the labels used the
+        true width, so on a short reference the two drifted apart and the
+        last bin absorbed everything past the end."""
+        import numpy as np
+        total_len, nbins = 1200, 500
+        starts = np.array([600.0])
+        got = pycoQC_plot._binned_coverage(starts, starts + 1, total_len, nbins)
+        # The label for position 600 sits at 600 * nbins / total_len = 250.
+        assert int(np.argmax(got)) == 250
+
+
+class TestFast5FileTypeAttribute:
+
+    def test_multi_read_written_as_str(self, tmp_path):
+        """ont_fast5_api writes the attribute as str, which failed a
+        comparison against bytes and sent the file down the single-read path
+        until it died looking for /Raw/Reads."""
+        from conftest import _write_basecalled_fast5
+        from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary
+        h5py = pytest.importorskip("h5py")
+
+        d = tmp_path / "f5"
+        d.mkdir()
+        path = _write_basecalled_fast5(d / "batch.fast5", n_reads=5)
+        with h5py.File(path, "r+") as fh:
+            fh.attrs["file_type"] = "multi-read"      # a plain str
+
+        out = tmp_path / "s.txt"
+        Fast5_to_seq_summary(fast5_dir=str(d), seq_summary_fn=str(out),
+                             threads=3)
+        assert len(pd.read_csv(out, sep="\t")) == 5
+
+
+class TestBarcodePlaceholders:
+
+    def test_bam_without_barcodes_has_no_barcode(self, tmp_path):
+        """Writing "none" made an unbarcoded run look like a barcoded one
+        with a single sample called none."""
+        from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary
+        pysam = pytest.importorskip("pysam")
+        d = tmp_path / "bam"
+        d.mkdir()
+        header = {"HD": {"VN": "1.6", "SO": "unknown"},
+                  "RG": [{"ID": "rg1", "DS": "runid=r1 basecall_model=m1"}]}
+        with pysam.AlignmentFile(str(d / "r.bam"), "wb", header=header) as bam:
+            for i in range(3):
+                rec = pysam.AlignedSegment()
+                rec.query_name = f"read{i}"
+                rec.query_sequence = "ACGT" * 25
+                rec.query_qualities = pysam.qualitystring_to_array("I" * 100)
+                rec.flag = 4
+                rec.set_tags([("RG", "rg1", "Z"), ("ch", 1, "i"),
+                              ("st", "2026-01-01T00:00:00Z", "Z")])
+                bam.write(rec)
+        out = tmp_path / "s.txt"
+        Bam_to_seq_summary(bam_dir=str(d), seq_summary_fn=str(out), threads=3)
+        df = pd.read_csv(out, sep="\t")
+        assert df["barcode_arrangement"].isna().all()
+
+    def test_duplicate_ids_in_a_barcode_file_do_not_multiply_reads(self, tmp_path):
+        """A left merge on a duplicated key repeats the read instead of
+        failing, so every count came out high."""
+        summary = write_summary(tmp_path / "s.txt", n=600, barcodes=False)
+        barcodes = tmp_path / "bc.txt"
+        ids = [f"r{i:06d}" for i in range(600)] + ["r000001", "r000002"]
+        pd.DataFrame({
+            "read_id": ids,
+            "barcode_arrangement": ["barcode01"] * len(ids),
+        }).to_csv(barcodes, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(summary),
+                              barcode_file=str(barcodes), quiet=True)
+        assert len(parser.reads_df) == 600
+
+
+class TestBareOutputFilename:
+
+    def test_converter_accepts_a_name_with_no_directory(self, tmp_path,
+                                                        fastq_dir, monkeypatch):
+        """dirname of a bare name is "", which is never writable."""
+        from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
+        monkeypatch.chdir(tmp_path)
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir),
+                             seq_summary_fn="summary.txt", threads=3)
+        assert (tmp_path / "summary.txt").exists()
+
+
+class TestSmoothingKeepsMeasurements:
+
+    @pytest.mark.parametrize("sigma", [1.0, 1.5, 2.0, 3.0])
+    def test_an_isolated_measured_bin_survives(self, sigma):
+        """The weight threshold governs how far a value carries into a gap;
+        on its own it discarded lone measurements at higher sigma."""
+        import numpy as np
+        values = np.full(200, np.nan)
+        values[:60] = 5.0
+        values[150] = 9.0           # isolated, far from the dense stretch
+        smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=sigma)
+        assert np.isfinite(smoothed[150])

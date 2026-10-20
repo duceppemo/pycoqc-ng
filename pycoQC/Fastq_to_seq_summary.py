@@ -255,7 +255,9 @@ class Fastq_to_seq_summary():
         logger.info("Check input data and options")
         if not os.access(fastq_dir, os.R_OK):
             raise pycoQCError("Cannot read the indicated fastq directory")
-        if not os.access(os.path.dirname(seq_summary_fn), os.W_OK):
+        # dirname of a bare name is "", which is never writable, so
+        # a plain output filename was rejected.
+        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
             raise pycoQCError("Cannot write the indicated seq_summary_fn")
         if threads < 3:
             raise pycoQCError("At least 3 threads required")

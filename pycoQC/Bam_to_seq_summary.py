@@ -74,7 +74,9 @@ class Bam_to_seq_summary():
         logger.info("Check input data and options")
         if not os.access(bam_dir, os.R_OK):
             raise pycoQCError("Cannot read the indicated bam directory")
-        if not os.access(os.path.dirname(seq_summary_fn), os.W_OK):
+        # dirname of a bare name is "", which is never writable, so
+        # a plain output filename was rejected.
+        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
             raise pycoQCError("Cannot write the indicated seq_summary_fn")
         if threads < 3:
             raise pycoQCError("At least 3 threads required")
@@ -243,7 +245,11 @@ class Bam_to_seq_summary():
 
                 # Dorado writes a BC tag; MinKNOW puts the barcode on the read
                 # group instead.
-                barcode = bam_dict.get('BC') or group["barcode"] or 'none'
+                # An absent barcode is not a barcode. Writing the string
+                # "none" made a run with no barcoding look like a barcoded
+                # run with one sample called none, and the fastq converter
+                # already wrote an empty value for the same situation.
+                barcode = bam_dict.get('BC') or group["barcode"] or ''
 
                 # fn is a Dorado extension holding the source file name and is
                 # absent from the Oxford Nanopore output spec, so fall back to

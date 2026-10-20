@@ -111,7 +111,9 @@ class Fast5_to_seq_summary ():
         logger.info ("Check input data and options")
         if not os.access(fast5_dir, os.R_OK):
             raise pycoQCError("Cannot read the indicated fast5 directory")
-        if not os.access(os.path.dirname(seq_summary_fn), os.W_OK):
+        # dirname of a bare name is "", which is never writable, so
+        # a plain output filename was rejected.
+        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
             raise pycoQCError("Cannot write the indicated seq_summary_fn")
         if threads < 3:
             raise pycoQCError("At least 3 threads required")
@@ -205,7 +207,15 @@ class Fast5_to_seq_summary ():
 
                 with h5py.File(fast5_fn, "r") as h5_fp:
 
-                    multi_read = 'file_type' in h5_fp.attrs.keys() and h5_fp.attrs['file_type'] == b'multi-read'
+                    # HDF5 hands the attribute back as bytes or as str
+                    # depending on how it was written, and ont_fast5_api
+                    # writes str. Comparing against bytes alone made those
+                    # files look single-read, and the conversion then died
+                    # looking for /Raw/Reads.
+                    file_type = h5_fp.attrs.get('file_type')
+                    if isinstance(file_type, bytes):
+                        file_type = file_type.decode('utf8')
+                    multi_read = file_type == 'multi-read'
 
                     if multi_read:
                         read_ids = list(h5_fp["/"].keys())

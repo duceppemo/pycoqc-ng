@@ -9,15 +9,16 @@ from pycoQC.pycoQC_plot import pycoQC_plot
 
 
 def reference_n50(values):
-    """Straightforward N50: walk the sorted lengths until half the bases."""
-    values = sorted(values)
+    """N50 by its usual definition: the largest length for which the reads
+    at least that long hold half the bases."""
+    values = sorted(values, reverse=True)
     half = sum(values) / 2
     total = 0
     for v in values:
         total += v
         if total >= half:
             return int(v)
-    return None
+    return int(values[-1]) if values else None
 
 
 class TestComputeN50:
@@ -64,3 +65,18 @@ class TestComputePercentiles:
         assert result[0] == pytest.approx(0.0)
         assert result[-1] == pytest.approx(100.0)
         assert result[50] == pytest.approx(50.0)
+
+
+class TestN50Ties:
+    """Where a prefix sums to exactly half the bases, the read above the
+    boundary is the answer."""
+
+    @pytest.mark.parametrize("values, expected", [
+        ([1, 2, 3, 4, 10], 10),
+        ([2, 2, 2, 2, 4, 4], 4),
+        ([5, 5], 5),
+        ([0, 0, 0], 0),
+        ([7], 7),
+    ])
+    def test_known_values(self, values, expected):
+        assert pycoQC_plot._compute_N50(pd.Series(values, dtype=float)) == expected

@@ -1935,10 +1935,16 @@ class pycoQC_plot():
             sf = self.all_scaling_factor
 
         try:
-            # Bin data in categories
+            # Bin data in categories. Binning against the bin values left a
+            # first row reachable only by reads at exactly t.min, and
+            # labelling each row with the end of its interval shifted the
+            # whole picture half a bin, since plotly draws bricks centred on
+            # the y values. Dividing the span into time_bins real intervals
+            # and labelling each by its centre avoids both.
             t = (df["start_time"] / 3600).values
-            bins = np.linspace(t.min(), t.max(), num=time_bins)
-            t = np.digitize(t, bins=bins, right=True)
+            edges = np.linspace(t.min(), t.max(), num=time_bins + 1)
+            bins = (edges[:-1] + edges[1:]) / 2
+            t = np.clip(np.digitize(t, bins=edges[1:-1]), 0, time_bins - 1)
 
             # Count values per categories. This started from ones, so after
             # scaling every empty cell reported sf reads or bases on hover
@@ -2144,25 +2150,14 @@ class pycoQC_plot():
 
         ref_offset_dict = self._ref_offset(self.ref_len_dict, "left", ret_type="dict")
         df = self.all_df[["ref_id", "ref_start", "ref_end", "align_len"]].dropna()
-        # A reference shorter than nbins would otherwise give a step of zero.
-        steps = max(1, self.total_ref_len // nbins)
         mean_cov = round(df["align_len"].sum() / self.total_ref_len, 2)
 
-        # Compute coverage by interval. Mapping the offsets in pandas is much
-        # faster than walking the rows with itertuples.
-        positions = (df["ref_id"].map(ref_offset_dict).to_numpy()
-                     + df["ref_start"].to_numpy()).astype(np.int64)
+        # Lay the references end to end and work in that coordinate.
+        offsets = df["ref_id"].map(ref_offset_dict).to_numpy()
+        starts = (offsets + df["ref_start"].to_numpy()).astype(np.float64)
+        ends = (offsets + df["ref_end"].to_numpy()).astype(np.float64)
 
-        # The x axis is the bin index, and the reference labels and shading
-        # are placed at position * nbins / total_ref_len, so a read at
-        # position p belongs at bin p // steps. np.digitize against bins
-        # starting at zero returned 1 for the first bin, which left y[0]
-        # always empty and drew every bin one place right of the reference it
-        # belongs to. bincount alone also returned however many bins happened
-        # to be populated, so y and x could differ in length.
-        bin_index = np.clip(positions // steps, 0, nbins - 1)
-        y = np.bincount(bin_index, weights=df["align_len"].to_numpy(),
-                        minlength=nbins)[:nbins] / steps
+        y = self._binned_coverage(starts, ends, self.total_ref_len, nbins)
 
         # Time series smoothing
         if smooth_sigma:
@@ -2393,6 +2388,64 @@ class pycoQC_plot():
 
     #~~~~~~~PRIVATE METHODS~~~~~~~#
     @staticmethod
+    def _binned_coverage(starts, ends, total_len, nbins):
+        """Mean depth per bin, counting every base each alignment covers
+
+        An alignment used to be charged entirely to the bin its first base
+        fell in. That is harmless when the bins are far wider than the reads,
+        as on a human genome, but on the small references nanopore is
+        routinely used for, a viral genome, a plasmid, an amplicon panel, it
+        turned real coverage into a row of spikes with empty bins between
+        them. The overall coverage line was right, so the picture looked
+        plausible.
+
+        Each alignment now contributes its bases to every bin it spans: the
+        partial overlap at each end, and the whole bin width in between,
+        accumulated through a difference array so the cost stays linear.
+
+        * starts, ends
+            Alignment bounds in the concatenated reference coordinate, with
+            ends exclusive.
+        * total_len
+            Summed length of all references.
+        * nbins
+            Number of bins to divide them into.
+        """
+        width = total_len / nbins
+
+        # Bins are indexed as position * nbins / total_len, the same mapping
+        # the reference labels and the shading use, so the trace and the
+        # annotations cannot drift apart. Integer floor division by a
+        # truncated step did drift on short references.
+        first = np.clip((starts / width).astype(np.int64), 0, nbins - 1)
+        last = np.clip((np.maximum(ends - 1, starts) / width).astype(np.int64),
+                       0, nbins - 1)
+
+        bases = np.zeros(nbins, dtype=np.float64)
+
+        # Alignments confined to a single bin contribute their whole span.
+        within = first == last
+        if within.any():
+            np.add.at(bases, first[within], (ends - starts)[within])
+
+        spanning = ~within
+        if spanning.any():
+            head = first[spanning]
+            tail = last[spanning]
+            # The part of the first bin after the alignment starts, and the
+            # part of the last bin before it ends.
+            np.add.at(bases, head, width * (head + 1) - starts[spanning])
+            np.add.at(bases, tail, ends[spanning] - width * tail)
+
+            # Every bin strictly between them is covered end to end.
+            interior = np.zeros(nbins + 1, dtype=np.float64)
+            np.add.at(interior, head + 1, width)
+            np.add.at(interior, tail, -width)
+            bases += np.cumsum(interior)[:nbins]
+
+        return bases / width
+
+    @staticmethod
     def _smooth_with_gaps(values, sigma, min_weight=0.35):
         """Gaussian smoothing that tolerates empty bins
 
@@ -2424,7 +2477,11 @@ class pycoQC_plot():
         weight = gaussian_filter1d(present.astype(float), sigma=sigma)
 
         out = np.full_like(values, np.nan)
-        usable = weight > min_weight * weight.max()
+        # A bin that was measured is always drawn. The weight threshold only
+        # decides how far a value may be carried into surrounding gaps, and
+        # on its own it discarded isolated measurements once sigma reached
+        # about 1.5.
+        usable = present | (weight > min_weight * weight.max())
         np.divide(smoothed, weight, out=out, where=usable)
         return out
 
@@ -2447,7 +2504,14 @@ class pycoQC_plot():
         if values.size == 0:
             return np.nan
         cum_sum = np.cumsum(values)
-        return int(values[np.searchsorted(cum_sum, cum_sum[-1] / 2, side="left")])
+        # N50 is the largest length for which the reads at least that long
+        # hold half the bases. When a prefix sums to exactly half, "left"
+        # picked the read below the boundary: [1,2,3,4,10] gave 4 rather
+        # than 10.
+        # All-zero lengths put the target at the end of the cumulative sum,
+        # so the index has to be held inside the array.
+        index = np.searchsorted(cum_sum, cum_sum[-1] / 2, side="right")
+        return int(values[min(index, values.size - 1)])
 
     @staticmethod
     def _compute_hist(data, x_scale="linear", smooth_sigma=2, nbins=200):

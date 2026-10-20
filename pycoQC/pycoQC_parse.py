@@ -233,6 +233,15 @@ class pycoQC_parse():
                 df = df.rename(columns={"read_ID": "read_id", "barcode_call": "barcode"})
 
             df = df[["read_id", "barcode"]]
+            # Overlapping barcode files repeat read ids, and a left merge on
+            # a duplicated key multiplies the read rather than failing, so
+            # every count came out slightly high.
+            duplicated = df["read_id"].duplicated().sum()
+            if duplicated:
+                self.logger.info(
+                    "\t\t{:,} duplicated read ids in the barcode file(s) "
+                    "ignored".format(duplicated))
+                df = df.drop_duplicates(subset="read_id", keep="first")
             # Assign the result back: an inplace call on a single column
             # operates on a temporary copy under copy-on-write and silently
             # leaves the frame unchanged, so "none" stayed a barcode name.
