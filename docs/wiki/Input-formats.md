@@ -3,14 +3,11 @@
 `pycoQC` itself reads one thing: a **sequencing summary** file. Everything else is a
 converter that produces one.
 
-```
-                        ┌─ Albacore / Guppy / Dorado ─► sequencing_summary.txt ─┐
-                        │                                                       │
-FASTQ  ─► Fastq_to_seq_summary ────────────────────────────────────────────────►├─► pycoQC
-BAM    ─► Bam_to_seq_summary  ─────────────────────────────────────────────────►│
-POD5   ─► Pod5_to_seq_summary ─────────────────────────────────────────────────►│
-FAST5  ─► Fast5_to_seq_summary ────────────────────────────────────────────────►┘
-```
+![How each input format reaches a report](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/input-formats.svg)
+
+The two at the bottom are raw signal. A converter will read the run metadata out of
+them, but a report needs read lengths and quality scores, and those do not exist until
+the reads are basecalled.
 
 ## Sequencing summary
 

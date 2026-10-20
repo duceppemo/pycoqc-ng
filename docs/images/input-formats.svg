@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 516" width="1000" height="516"
+     role="img" aria-label="Input formats: a basecaller sequencing summary is read directly, while FASTQ, unaligned BAM and basecalled FAST5 are converted into one; POD5 and signal-only FAST5 yield run metadata but no report, because they hold no basecalls">
+  <title>pycoqc-ng input formats</title>
+  <style>
+    .card     { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; }
+    .pill     { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; }
+    .pill-none{ fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; stroke-dasharray: 5 5; }
+    .summary  { fill: #ffffff; stroke: #2f8f5b; stroke-width: 2; }
+    .dead     { fill: #fffbeb; stroke: #d9a406; stroke-width: 2; }
+    .core     { fill: #1d6fb8; stroke: none; }
+    .name     { font-family: "DejaVu Sans Mono", "Menlo", monospace; font-size: 13.5px; fill: #334155; }
+    .label    { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #334155; }
+    .note     { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11.5px; fill: #64748b; }
+    .note-warn{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11.5px; fill: #92700a; }
+    .warn     { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #92700a; }
+    .corename { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 19px; font-weight: 700; fill: #ffffff; }
+    .corenote { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11.5px; fill: #cfe3f7; }
+    .head     { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11.5px; font-weight: 700;
+                fill: #94a3b8; letter-spacing: 1.2px; }
+    .wire     { fill: none; stroke: #94a3b8; stroke-width: 2; }
+    .wire-ok  { fill: none; stroke: #2f8f5b; stroke-width: 2; }
+    .wire-warn{ fill: none; stroke: #d9a406; stroke-width: 2; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#94a3b8"/></marker>
+    <marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#2f8f5b"/></marker>
+    <marker id="a-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#d9a406"/></marker>
+  </defs>
+
+  <text class="head" x="22"  y="40">WHAT YOU HAVE</text>
+  <text class="head" x="302" y="40">CONVERTER</text>
+  <text class="head" x="602" y="40">WHAT pycoQC READS</text>
+
+  <!-- The basecaller's own summary needs no conversion. -->
+  <rect class="card" x="20" y="64" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="89">sequencing summary</text>
+  <text class="note"  x="38" y="107">from Albacore, Guppy or Dorado</text>
+  <rect class="pill-none" x="300" y="70" width="260" height="44" rx="22"/>
+  <text class="note" x="430" y="97" text-anchor="middle">none needed, read directly</text>
+
+  <!-- Basecalled formats: a converter recomputes the summary from the reads. -->
+  <rect class="card" x="20" y="136" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="161">FASTQ</text>
+  <text class="note"  x="38" y="179">.fastq / .fq, plain or gzipped</text>
+  <rect class="pill" x="300" y="142" width="260" height="44" rx="22"/>
+  <text class="name" x="430" y="162" text-anchor="middle">Fastq_to_seq_summary</text>
+  <text class="note" x="430" y="178" text-anchor="middle">also gives %GC per read</text>
+
+  <rect class="card" x="20" y="208" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="233">unaligned BAM</text>
+  <text class="note"  x="38" y="251">what dorado basecaller writes</text>
+  <rect class="pill" x="300" y="214" width="260" height="44" rx="22"/>
+  <text class="name" x="430" y="234" text-anchor="middle">Bam_to_seq_summary</text>
+  <text class="note" x="430" y="250" text-anchor="middle">also gives %GC per read</text>
+
+  <rect class="card" x="20" y="280" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="305">FAST5 with basecalls</text>
+  <text class="note"  x="38" y="323">legacy, Guppy --fast5_out</text>
+  <rect class="pill" x="300" y="286" width="260" height="44" rx="22"/>
+  <text class="name" x="430" y="306" text-anchor="middle">Fast5_to_seq_summary</text>
+  <text class="note" x="430" y="322" text-anchor="middle">reads /Analyses; the slowest</text>
+
+  <!-- Raw signal: no basecalls, so no length and no quality. -->
+  <rect class="card" x="20" y="368" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="393">POD5</text>
+  <text class="note"  x="38" y="411">raw signal from MinKNOW</text>
+  <rect class="pill" x="300" y="374" width="260" height="44" rx="22"/>
+  <text class="name" x="430" y="394" text-anchor="middle">Pod5_to_seq_summary</text>
+  <text class="note" x="430" y="410" text-anchor="middle">run metadata only</text>
+
+  <rect class="card" x="20" y="440" width="240" height="56" rx="9"/>
+  <text class="name"  x="38" y="465">FAST5, signal only</text>
+  <text class="note"  x="38" y="483">no /Analyses group in it</text>
+  <rect class="pill" x="300" y="446" width="260" height="44" rx="22"/>
+  <text class="name" x="430" y="466" text-anchor="middle">Fast5_to_seq_summary</text>
+  <text class="note" x="430" y="482" text-anchor="middle">run metadata only</text>
+
+  <g class="wire" marker-end="url(#a)">
+    <path d="M 268 92  L 296 92"/>
+    <path d="M 268 164 L 296 164"/>
+    <path d="M 268 236 L 296 236"/>
+    <path d="M 268 308 L 296 308"/>
+    <path d="M 268 396 L 296 396"/>
+    <path d="M 268 468 L 296 468"/>
+  </g>
+
+  <g class="wire-ok" marker-end="url(#a-ok)">
+    <path d="M 568 92  L 596 92"/>
+    <path d="M 568 164 L 596 164"/>
+    <path d="M 568 236 L 596 236"/>
+    <path d="M 568 308 L 596 308"/>
+  </g>
+
+  <g class="wire-warn" marker-end="url(#a-warn)">
+    <path d="M 568 396 L 596 396"/>
+    <path d="M 568 468 L 596 468"/>
+  </g>
+
+  <rect class="summary" x="600" y="64" width="220" height="272" rx="11"/>
+  <text class="name"  x="710" y="162" text-anchor="middle">sequencing_summary.txt</text>
+  <text class="label" x="710" y="190" text-anchor="middle">One summary table</text>
+  <text class="note"  x="710" y="210" text-anchor="middle">read id, length, quality,</text>
+  <text class="note"  x="710" y="226" text-anchor="middle">channel, time, barcode</text>
+
+  <rect class="dead" x="600" y="368" width="220" height="128" rx="11"/>
+  <text class="warn"      x="710" y="412" text-anchor="middle">No report</text>
+  <text class="note-warn" x="710" y="434" text-anchor="middle">nothing is basecalled yet,</text>
+  <text class="note-warn" x="710" y="450" text-anchor="middle">so there is no read length</text>
+  <text class="note-warn" x="710" y="466" text-anchor="middle">and no quality score</text>
+
+  <g class="wire-ok" marker-end="url(#a-ok)">
+    <path d="M 828 200 L 856 200"/>
+  </g>
+
+  <rect class="core" x="860" y="160" width="120" height="80" rx="12"/>
+  <text class="corename" x="920" y="194" text-anchor="middle">pycoQC</text>
+  <text class="corenote" x="920" y="214" text-anchor="middle">html · pdf · json</text>
+</svg>
