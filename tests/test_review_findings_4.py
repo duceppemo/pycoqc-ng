@@ -199,69 +199,69 @@ class TestHistogramBins:
         assert (x, y) == ([], [])
 
 
+@pytest.fixture(scope="module")
+def density_plotter(tmp_path_factory):
+    path = write_summary(tmp_path_factory.mktemp("d") / "s.txt", n=3000)
+    return pycoQC_plot(pycoQC_parse(summary_file=str(path), quiet=True),
+                       quiet=True)
+
+
 class TestDensitiesAreCentredOnTheirBins:
 
-    @pytest.fixture(scope="class")
-    @classmethod
-    def plotter(cls, tmp_path_factory):
-        path = write_summary(tmp_path_factory.mktemp("d") / "s.txt", n=3000)
-        return pycoQC_plot(pycoQC_parse(summary_file=str(path), quiet=True),
-                           quiet=True)
+    def test_the_1d_density_stops_at_the_longest_read(self, density_plotter):
+        x = np.asarray(density_plotter.read_len_1D()["data"][0]["x"], dtype=float)
+        assert x[-1] < density_plotter.all_df["read_len"].max()
 
-    def test_the_1d_density_stops_at_the_longest_read(self, plotter):
-        x = np.asarray(plotter.read_len_1D()["data"][0]["x"], dtype=float)
-        assert x[-1] < plotter.all_df["read_len"].max()
-
-    def test_the_2d_density_grid_matches_its_cells(self, plotter):
+    def test_the_2d_density_grid_matches_its_cells(self, density_plotter):
         """A contour trace reads the coordinates it is given as cell
         centres, so handing it the edges drew the density half a bin away
         from the median marker on the same axes."""
-        trace = plotter.read_len_read_qual_2D()["data"][0]
+        trace = density_plotter.read_len_read_qual_2D()["data"][0]
         z = np.asarray(trace["z"])
         assert len(trace["x"]) == z.shape[1]
         assert len(trace["y"]) == z.shape[0]
 
 
+@pytest.fixture(scope="module")
+def sampled_plotter(tmp_path_factory):
+    path = write_summary(tmp_path_factory.mktemp("t") / "s.txt", n=4000)
+    parser = pycoQC_parse(summary_file=str(path), quiet=True)
+    # Sample hard, so anything taken from the sample is obviously wrong.
+    return pycoQC_plot(parser, sample=400, quiet=True)
+
+
 class TestReportedTotalsAreTheRunsOwn:
 
-    @pytest.fixture(scope="class")
-    @classmethod
-    def plotter(cls, tmp_path_factory):
-        path = write_summary(tmp_path_factory.mktemp("t") / "s.txt", n=4000)
-        parser = pycoQC_parse(summary_file=str(path), quiet=True)
-        # Sample hard, so anything taken from the sample is obviously wrong.
-        return pycoQC_plot(parser, sample=400, quiet=True)
-
     @pytest.mark.parametrize("count_level", ["reads", "bases"])
-    def test_output_over_time_ends_at_the_real_total(self, plotter, count_level):
+    def test_output_over_time_ends_at_the_real_total(self, sampled_plotter, count_level):
         """Bases were scaled by the ratio of read counts, which the sampled
         reads do not obey: the yield on the plot contradicted the summary
         table on the same page."""
-        _, data, _ = plotter._pycoQC_plot__output_over_time_data(
+        _, data, _ = sampled_plotter._pycoQC_plot__output_over_time_data(
             "all", count_level)
-        exact = (len(plotter.all_df) if count_level == "reads"
-                 else int(plotter.all_df["read_len"].sum()))
+        exact = (len(sampled_plotter.all_df) if count_level == "reads"
+                 else int(sampled_plotter.all_df["read_len"].sum()))
         assert np.asarray(data["y"][0])[-1] == pytest.approx(exact)
 
-    def test_the_barcode_table_counts_the_whole_run(self, plotter):
-        cells = plotter.basecall_summary_per_barcode()["data"][0]["cells"]["values"]
-        assert sum(cells[1]) == len(plotter.all_df)
-        assert sum(cells[2]) == int(plotter.all_df["read_len"].sum())
+    def test_the_barcode_table_counts_the_whole_run(self, sampled_plotter):
+        cells = sampled_plotter.basecall_summary_per_barcode()["data"][0]["cells"]["values"]
+        assert sum(cells[1]) == len(sampled_plotter.all_df)
+        assert sum(cells[2]) == int(sampled_plotter.all_df["read_len"].sum())
 
-    def test_pass_and_fail_barcode_counts_add_up(self, plotter):
+    def test_pass_and_fail_barcode_counts_add_up(self, sampled_plotter):
         """Pass and fail are sampled separately, so their scaled counts did
         not add up to the all reads row for any barcode."""
         def counts(level):
-            _, data = plotter._pycoQC_plot__summary_barcode_data(level)
+            _, data = sampled_plotter._pycoQC_plot__summary_barcode_data(level)
             return {row[0]: row[1] for row in data["y"][0]}
 
         all_c, pass_c, fail_c = counts("all"), counts("pass"), counts("fail")
         for bc in all_c:
             assert pass_c.get(bc, 0) + fail_c.get(bc, 0) == all_c[bc]
 
-    def test_the_barcode_pie_counts_the_whole_run(self, plotter):
-        _, data = plotter._pycoQC_plot__barcode_counts_data("all")
-        assert sum(data["values"][0]) == len(plotter.all_df)
+    def test_the_barcode_pie_counts_the_whole_run(self, sampled_plotter):
+        _, data = sampled_plotter._pycoQC_plot__barcode_counts_data("all")
+        assert sum(data["values"][0]) == len(sampled_plotter.all_df)
 
 
 class TestOptionalColumnsDoNotCostReads:
@@ -449,48 +449,48 @@ class TestBarcodeFigureControls:
         assert plotter.barcode_counts(height=640)["layout"]["height"] == 640
 
 
+@pytest.fixture(scope="module")
+def bc96_plotter(tmp_path_factory):
+    path = tmp_path_factory.mktemp("bc96") / "s.txt"
+    n = 9600
+    pd.DataFrame({
+        "read_id": [f"r{i:06d}" for i in range(n)],
+        "run_id": "run1",
+        "channel": [i % 512 + 1 for i in range(n)],
+        "start_time": [float(i) for i in range(n)],
+        "sequence_length_template": [500 + (i % 4000) for i in range(n)],
+        "mean_qscore_template": [5.0 + (i % 10) for i in range(n)],
+        "barcode_arrangement": [f"barcode{i % 96 + 1:02d}"
+                                for i in range(n)],
+    }).to_csv(path, sep="\t", index=False)
+    parser = pycoQC_parse(summary_file=str(path), min_barcode_percent=0,
+                          quiet=True)
+    return pycoQC_plot(parser, quiet=True)
+
+
 class TestTheLargestBarcodeKit:
     """96 is as many as a standard Oxford Nanopore kit goes (SQK-NBD114-96,
     SQK-RBK114-96, EXP-PBC096), so the report has to hold that many."""
 
-    @pytest.fixture(scope="class")
-    @classmethod
-    def plotter(cls, tmp_path_factory):
-        path = tmp_path_factory.mktemp("bc96") / "s.txt"
-        n = 9600
-        pd.DataFrame({
-            "read_id": [f"r{i:06d}" for i in range(n)],
-            "run_id": "run1",
-            "channel": [i % 512 + 1 for i in range(n)],
-            "start_time": [float(i) for i in range(n)],
-            "sequence_length_template": [500 + (i % 4000) for i in range(n)],
-            "mean_qscore_template": [5.0 + (i % 10) for i in range(n)],
-            "barcode_arrangement": [f"barcode{i % 96 + 1:02d}"
-                                    for i in range(n)],
-        }).to_csv(path, sep="\t", index=False)
-        parser = pycoQC_parse(summary_file=str(path), min_barcode_percent=0,
-                              quiet=True)
-        return pycoQC_plot(parser, quiet=True)
-
-    def test_every_barcode_reaches_the_table(self, plotter):
-        cells = plotter.basecall_summary_per_barcode()["data"][0]["cells"]["values"]
+    def test_every_barcode_reaches_the_table(self, bc96_plotter):
+        cells = bc96_plotter.basecall_summary_per_barcode()["data"][0]["cells"]["values"]
         assert len(cells[0]) == 96
 
-    def test_the_table_is_tall_enough_to_show_them(self, plotter):
-        fig = plotter.basecall_summary_per_barcode()
+    def test_the_table_is_tall_enough_to_show_them(self, bc96_plotter):
+        fig = bc96_plotter.basecall_summary_per_barcode()
         # Header plus 96 rows of 30 pixels.
         assert fig["layout"]["height"] >= 40 + 96 * 30
 
-    def test_counts_are_drawn_as_bars_not_a_pie(self, plotter):
+    def test_counts_are_drawn_as_bars_not_a_pie(self, bc96_plotter):
         """A pie divided 96 ways is a ring of slivers under a thicket of
         leader lines, with a legend longer than the plot is tall."""
-        kinds = [trace.type for trace in plotter.barcode_counts()["data"]]
+        kinds = [trace.type for trace in bc96_plotter.barcode_counts()["data"]]
         assert kinds == ["table", "bar"] * 3
 
-    def test_every_barcode_gets_a_bar(self, plotter):
-        bar = plotter.barcode_counts()["data"][1]
+    def test_every_barcode_gets_a_bar(self, bc96_plotter):
+        bar = bc96_plotter.barcode_counts()["data"][1]
         assert len(bar["y"]) == 96
-        assert sum(bar["x"]) == len(plotter.all_df)
+        assert sum(bar["x"]) == len(bc96_plotter.all_df)
 
     def test_a_small_run_keeps_its_pie(self, tmp_path):
         path = write_summary(tmp_path / "s.txt", n=2000)   # four barcodes
@@ -499,10 +499,10 @@ class TestTheLargestBarcodeKit:
         kinds = [trace.type for trace in plotter.barcode_counts()["data"]]
         assert kinds == ["table", "pie"] * 3
 
-    def test_the_boxplots_cover_every_barcode(self, plotter):
+    def test_the_boxplots_cover_every_barcode(self, bc96_plotter):
         for method in ("length_boxplot_per_barcode", "gc_boxplot_per_barcode"):
             try:
-                fig = getattr(plotter, method)()
+                fig = getattr(bc96_plotter, method)()
             except pycoQCError:
                 continue          # %GC is not in this summary
             # One box trace, grouped by the barcode on the x axis.
