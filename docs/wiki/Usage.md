@@ -46,8 +46,8 @@ pycoQC -f sequencing_summary.txt -o report.html -p report.pdf
 | `-f`, `--summary_file` | Summary from Albacore 1.0.0+, Guppy 2.1.3+ or Dorado 0.4.1+ (required) |
 | `-b`, `--barcode_file` | Barcoding summary from Guppy 2.1.3+ or Deepbinner 0.2.0+ |
 | `-a`, `--bam_file` | BAM of the same reads, preferably aligned with minimap2 |
-| `-o`, `--html_outfile` | HTML report (required unless `-j` is given) |
-| `-j`, `--json_outfile` | JSON summary (required unless `-o` is given) |
+| `-o`, `--html_outfile` | HTML report (at least one of `-o`, `-j` and `-p` is required) |
+| `-j`, `--json_outfile` | JSON summary |
 | `-p`, `--pdf_outfile` | Static PDF report, far smaller than the HTML. Needs the `pdf` extra |
 
 ### Filtering
@@ -106,9 +106,9 @@ Shared options:
 |---|---|---|
 | `-f`, `--*_dir` | — | Input directory, searched recursively (required) |
 | `-s`, `--seq_summary_fn` | — | Output summary file (required) |
-| `-t`, `--threads` | 4 | Total processes. One reads, one writes, the rest parse, so the minimum is 3 |
+| `-t`, `--threads` | 4 | Workers. FASTQ and FAST5 use one process to read, one to write and the rest to parse; BAM and POD5 use `threads - 2` threads in one process. The minimum is 3 either way |
 | `--max_*` | 0 | Stop after this many input files. `0` means no limit |
-| `--fields` | see `--help` | Fields to extract |
+| `--fields` | see `--help` | Columns to keep (FASTQ, BAM and FAST5; POD5 has no such option) |
 | `--include_path` | off | Add a column with the absolute path of the source file |
 | `--verbose_level` | 0 | `2` chatty, `1` normal, `0` quiet |
 

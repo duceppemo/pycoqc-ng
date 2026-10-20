@@ -51,6 +51,23 @@
   raised `KeyError`.
 * `--config_file`'s help has always promised a lookup in `~/.pycoQC` and
   `~/.config/pycoQC/config`; nothing looked there.
+* Pass and fail were split by dropping the passing reads' index labels,
+  which takes every row carrying a repeated read id: a run basecalled
+  twice reported no failing reads at all.
+* Numeric barcodes came out as `6.0`, and sorting their names put barcode
+  10 between 1 and 2.
+* A summary with a read length but no quality score, or the reverse, was
+  reported as if nothing had been basecalled instead of saying which
+  column was missing.
+* `Fast5_to_seq_summary` left `duration` and `passes_filtering` out of its
+  defaults, so a raw FAST5 report had no duration plots and nothing
+  marked as failing.
+* A zero duration made every log bin edge NaN; a blank `passes_filtering`
+  counted as a failure; a barcode too rare to be sampled showed a read
+  count beside a blank N50.
+* Pass and fail are read only from the part of the path below the
+  directory given to the converter, so a run kept under a directory named
+  for a failed experiment is no longer a run of failing reads.
 
 ### 2026-10-19 — pycoqc-ng 3.0.0
 

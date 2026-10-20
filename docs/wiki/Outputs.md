@@ -26,6 +26,7 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `basecall_summary` | Reads, bases, median length, N50, median quality |
 | `basecall_summary_per_barcode` | The same, per barcode |
 | `alignment_summary` | Alignment counts and rates (needs `-a`) |
+| `signal_summary` | Reads, median time in pore, total pore time, active channels (raw signal runs) |
 
 **Distributions**
 
@@ -37,6 +38,7 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `identity_freq_1D` | Alignment identity |
 | `length_boxplot_per_barcode` | Read length per barcode |
 | `gc_boxplot_per_barcode` | %GC per barcode |
+| `read_duration_1D` | How long each read held its pore (raw signal runs) |
 
 ![Read length distribution](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-length.png)
 
@@ -64,6 +66,7 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | `read_gc_over_time` | %GC over time |
 | `align_len_over_time` | Aligned length over time |
 | `identity_freq_over_time` | Identity over time |
+| `read_duration_over_time` | Time in pore over experiment time (raw signal runs) |
 | `channels_activity` | Per-channel activity heatmap |
 
 ![Output over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/output-over-time.png)
@@ -121,7 +124,7 @@ pip install 'pycoqc-ng[pdf]'
 The PDF honours the same configuration as the HTML report, so trimming the plot list
 trims the PDF. An example built from the bundled test data is in the repository at
 [`docs/examples/pycoQC_report_example.pdf`](https://github.com/duceppemo/pycoqc-ng/blob/main/docs/examples/pycoQC_report_example.pdf)
-(243 KB, against 4.7 MB for the same report as HTML).
+(around 480 KB, against roughly twenty times that for the same report as HTML).
 
 ## JSON summary
 
@@ -145,7 +148,13 @@ and MultiQC-style aggregation. Computed on **all** reads, not the plotting sampl
 ```
 
 Top-level keys are `pycoqc`, `All Reads` and `Pass Reads`; an `alignment` section is
-added under each when `-a` is given. Reading a couple of fields:
+added under each when `-a` is given. On a run that has not been basecalled there is no
+`basecall` section, because there is no sequence to describe; a `signal` section takes
+its place, holding `reads_number` and, where the summary carries durations,
+`median_duration`, `total_duration`, `duration_percentiles` and `duration_hist`.
+
+Missing statistics are written as `null`, so the file is valid JSON for `jq`, R and
+JavaScript as well as Python. Reading a couple of fields:
 
 ```python
 import json
@@ -153,8 +162,11 @@ import json
 with open("pycoQC_report.json") as fh:
     report = json.load(fh)
 
-basecall = report["All Reads"]["basecall"]
-print(basecall["reads_number"], basecall["N50"])
+stats = report["All Reads"]
+if "basecall" in stats:
+    print(stats["basecall"]["reads_number"], stats["basecall"]["N50"])
+else:                                   # a run that was never basecalled
+    print(stats["signal"]["reads_number"])
 ```
 
 ### N50

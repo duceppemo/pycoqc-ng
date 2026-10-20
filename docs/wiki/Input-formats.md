@@ -64,7 +64,9 @@ FASTQ input additionally yields **%GC per read**, which the basecaller summary d
 carry, enabling the %GC plots.
 
 Reads under a path containing `fail` are marked as failing, which matches the
-`fastq_pass` and `fastq_fail` layout the basecallers write.
+`fastq_pass` and `fastq_fail` layout the basecallers write. `fail` has to be a whole
+word, and only the part of the path below the directory you give is considered, so a
+run kept under `failed_experiments/` or `/mnt/failover/` is not read as failing.
 
 ## BAM (Dorado)
 
@@ -73,9 +75,17 @@ Bam_to_seq_summary -f bam_dir/ -s sequencing_summary.txt -t 8
 ```
 
 For **unaligned** BAM as produced by `dorado basecaller`. Metadata comes from the tags
-Dorado writes: `st` (start time), `ch` (channel), `BC` (barcode), `qs` (quality),
-`rn` (read number), `fn` (source file), plus the read group for the run id, flowcell,
-device and basecalling model. Like FASTQ, this gives %GC.
+Dorado writes: `st` (start time), `ch` (channel), `BC` (barcode), `fn` (source file),
+plus the read group for the run id, flow cell, device, basecalling model, barcode,
+sample id and run start time. Like FASTQ, this gives %GC.
+
+The quality score is recomputed from the per-base qualities rather than taken from the
+`qs` tag, so it is the mean error probability expressed as a phred score, the same
+definition the basecaller's own summary uses.
+
+`--fields` narrows the columns written; by default every field the file carries is
+written. `--include_path` adds a `path` column. `--basecall_id` selects one of several
+basecall groups inside a FAST5 and means nothing here, so it is ignored with a warning.
 
 Not to be confused with `-a/--bam_file` on `pycoQC`, which takes an *aligned* BAM to add
 alignment plots to a report.
@@ -136,6 +146,10 @@ What the summary does carry, straight from the file:
 | `duration` | sample count divided by the sample rate, in seconds |
 | `sample_id`, `flowcell_id` | the run info |
 | `read_number` | per-channel read counter |
+| `run_start_time`, `flow_cell_product_code`, `sequencing_kit`, `device_id`, `software` | the run info, used for the report's run panel |
+| `barcode_arrangement`, `passes_filtering` | read from the file name, see below |
+
+Add `--include_path` for a `path` column naming the file each read came from.
 
 That is enough to answer questions about the run itself, which pore produced what and
 when, before or without basecalling.
@@ -151,10 +165,12 @@ FAW88668_pass_barcode06_1ec22c6e_0.pod5
          flag barcode
 ```
 
-A name with no barcode in it gives `skip`. The pass or fail flag is decided in order:
-`pass` anywhere in the name wins and marks the reads as passing, otherwise `fail` or
-`skip` marks them as failing, and a name carrying none of the three is treated as
-passing. Rename files at your own risk; nothing else in a POD5 carries either value.
+A name containing `unclassified` gives `unclassified`; a name with no barcode in it at
+all leaves the barcode empty, since a run that was never demultiplexed has no barcode.
+The pass or fail flag is decided in order: `pass` anywhere in the name wins and marks
+the reads as passing, otherwise `fail` or `skip` marks them as failing, and a name
+carrying none of the three is treated as passing. Rename files at your own risk;
+nothing else in a POD5 carries either value.
 
 ## FAST5
 
@@ -180,8 +196,10 @@ real read lengths and quality scores:
 | `channel`, sampling rate | `channel_id` |
 | `run_id`, `sample_id`, `device_id`, `flow_cell_id` | `tracking_id` |
 
-`start_time` is stored in samples and divided by the channel's sampling rate, as for
-POD5.
+`start_time` and `duration` are stored in samples and divided by the channel's sampling
+rate, as for POD5. Pass and fail come from the directory the basecaller wrote the file
+to, `fast5_pass` or `fast5_fail`, matched on whole words and only below the directory
+you point the converter at.
 
 If the file was basecalled more than once there will be several `Basecall_1D_NNN`
 groups. `--basecall_id` selects which one to read, defaulting to `0`.

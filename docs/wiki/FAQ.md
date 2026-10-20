@@ -92,8 +92,12 @@ the basecaller's flag. Set it to match your basecaller's setting if you want the
 to agree.
 
 On a run that has not been basecalled there is no quality score to threshold on, so the
-`passes_filtering` column is used as it stands. The POD5 and FAST5 converters take it
-from the file name, which is how MinKNOW records it.
+`passes_filtering` column is used as it stands. The converters take it from where the
+basecaller put the file: POD5 from the file name, FASTQ and FAST5 from the
+`fastq_pass`/`fastq_fail` and `fast5_pass`/`fast5_fail` directories. Matching is on
+whole words, and only on the part of the path below the directory you point the
+converter at, so a run kept under `failed_experiments/` or `/mnt/failover/` is not read
+as a run of failing reads.
 
 ## Can I use it on a run that is still going?
 

@@ -1,7 +1,9 @@
 # Configuration
 
 Which plots the HTML report contains, and how each is drawn, comes from a JSON
-configuration file. Without one, a built-in default is used.
+configuration file. Without one, a built-in default is used: one for a basecalled run,
+and a shorter one for a run that has not been basecalled, where most of the usual plots
+have nothing to draw.
 
 ## Starting from the default
 
@@ -13,6 +15,15 @@ pycoQC -f sequencing_summary.txt -o report.html --config_file my_config.json
 If `--config_file` is not given, `pycoQC` looks for `~/.pycoQC` and then
 `~/.config/pycoQC/config`, falling back to the built-in default. Dropping a file at one
 of those paths changes the default for every run on that machine.
+
+**A configuration you supply is used as it stands**, whether you pass it with
+`--config_file` or leave it in your home directory. It therefore also replaces the
+shorter default that a run without basecalls would otherwise get, and such a run will
+then show a report of mostly skipped plots. If you work with POD5 or raw FAST5, either
+leave the default in place for those runs or keep a second configuration for them; the
+built-in one is `pycoQC_config_signal.json` inside the installed package, listing
+`run_summary`, `signal_summary`, `read_duration_1D`, `output_over_time`,
+`read_duration_over_time`, `channels_activity` and `barcode_counts`.
 
 ## Structure
 

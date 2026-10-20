@@ -63,7 +63,9 @@ tests/
 ```
 
 Adding a plot means a method on `pycoQC_plot` returning a plotly figure, plus an entry
-in `templates/pycoQC_config.json`.
+in `templates/pycoQC_config.json`, or in `templates/pycoQC_config_signal.json` if it
+belongs in the shorter report for runs that have not been basecalled. A plot whose data
+is missing should raise `pycoQCError`, which the report catches and skips.
 
 ## CI
 
