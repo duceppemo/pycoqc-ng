@@ -8,6 +8,7 @@ import getpass
 import io
 import json
 import logging
+import math
 import socket
 from collections import OrderedDict
 from importlib.resources import files
@@ -75,6 +76,17 @@ def _current_user():
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def _json_safe(obj):
+    """Replace the non finite floats JSON has no literal for with None."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return OrderedDict((k, _json_safe(v)) for k, v in obj.items())
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 class pycoQC_report ():
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~INIT METHOD~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -397,7 +409,12 @@ class pycoQC_report ():
         self.logger.info("\tWriting to JSON file")
         mkbasedir(outfile, exist_ok=True)
         with open(outfile, "w") as fp:
-            json.dump(res_dict, fp, indent=2)
+            # A run with no alignments, or a barcode with no passing reads,
+            # leaves NaN in the stats. json.dump writes that as a bare NaN,
+            # which Python reads back but which is not JSON: jq, R and
+            # JavaScript all reject the file. null says the same thing in a
+            # form every reader accepts.
+            json.dump(_json_safe(res_dict), fp, indent=2, allow_nan=False)
 
     #~~~~~~~~~~~~~~PRIVATE FUNCTION~~~~~~~~~~~~~~#
 

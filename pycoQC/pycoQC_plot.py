@@ -834,9 +834,13 @@ class pycoQC_plot():
             # Remove last bin from labels
             count_x = bins[1:]
 
-            # Smooth results with a gaussian filter
+            # Smooth results with a gaussian filter, in floating point: the
+            # counts are integers and smoothing in place truncated them, so
+            # a small read set lost most of its density and whole bins were
+            # flattened to zero.
             if smooth_sigma:
-                count_y = gaussian_filter1d(count_y, sigma=smooth_sigma)
+                count_y = gaussian_filter1d(count_y.astype(np.float64),
+                                            sigma=smooth_sigma)
 
             # Get percentiles percentiles
             stat = np.percentile(data, [10, 25, 50, 75, 90])
@@ -1313,9 +1317,12 @@ class pycoQC_plot():
             x = np.linspace(t.min(), t.max(), num=time_bins)
             t = np.digitize(t, bins=x, right=True)
 
-            # Count reads or bases per categories
+            # Count reads or bases per categories. Counting reads gives
+            # integers, and the smoothing below would truncate them whenever
+            # the scaling factor is 1, which is any run small enough not to
+            # be sampled, showing gaps in the trace that are not there.
             if count_level == "reads":
-                y = np.bincount(t)
+                y = np.bincount(t).astype(np.float64)
             elif count_level == "bases":
                 y = np.bincount(t, weights=df["read_len"].values)
             else:
@@ -2149,13 +2156,19 @@ class pycoQC_plot():
         self.logger.info("\t\tComputing plot")
 
         ref_offset_dict = self._ref_offset(self.ref_len_dict, "left", ret_type="dict")
-        df = self.all_df[["ref_id", "ref_start", "ref_end", "align_len"]].dropna()
-        mean_cov = round(df["align_len"].sum() / self.total_ref_len, 2)
+        df = self.all_df[["ref_id", "ref_start", "ref_end"]].dropna()
 
         # Lay the references end to end and work in that coordinate.
         offsets = df["ref_id"].map(ref_offset_dict).to_numpy()
         starts = (offsets + df["ref_start"].to_numpy()).astype(np.float64)
         ends = (offsets + df["ref_end"].to_numpy()).astype(np.float64)
+
+        # The dotted line has to be the mean of the area drawn beneath it,
+        # so it measures the same thing: how much reference each alignment
+        # spans. align_len counts aligned query bases instead, which
+        # insertions inflate and deletions deflate, and the line then sat
+        # off the curve by however indel rich the alignments were.
+        mean_cov = round((ends - starts).sum() / self.total_ref_len, 2)
 
         y = self._binned_coverage(starts, ends, self.total_ref_len, nbins)
 
@@ -2418,8 +2431,15 @@ class pycoQC_plot():
         # annotations cannot drift apart. Integer floor division by a
         # truncated step did drift on short references.
         first = np.clip((starts / width).astype(np.int64), 0, nbins - 1)
-        last = np.clip((np.maximum(ends - 1, starts) / width).astype(np.int64),
+        # The last bin an alignment touches is the one its final fraction
+        # falls in. Deriving it from ends - 1 mixes a whole-base notion into
+        # a continuous one: where a bin boundary is not an integer the tail
+        # was charged to the bin before it, and once the bins are narrower
+        # than a base, as on a reference shorter than nbins, each alignment
+        # became a spike followed by empty bins.
+        last = np.clip(np.ceil(ends / width).astype(np.int64) - 1,
                        0, nbins - 1)
+        last = np.maximum(last, first)
 
         bases = np.zeros(nbins, dtype=np.float64)
 
@@ -2533,12 +2553,20 @@ class pycoQC_plot():
             count_y = ''
             bins = ''
 
-        # Remove last bin from labels
-        count_x = bins[1:]
+        # Label each bin by its centre. Using the right edge put every
+        # count half a bin too far along the axis, which is visible on a
+        # log scale where the first bins are wide: a 200 base read was
+        # drawn at the position of a 260 base one.
+        count_x = (bins[:-1] + bins[1:]) / 2
 
-        # Smooth results with a gaussian filter
+        # Smooth results with a gaussian filter. np.histogram returns
+        # integer counts and gaussian_filter1d keeps the input dtype, so
+        # smoothing truncated every bin towards zero: a six read set came
+        # out as all zeros, and the real run lost 1,217 of 975,715 reads
+        # from its length histogram.
         if smooth_sigma:
-            count_y = gaussian_filter1d(count_y, sigma=smooth_sigma)
+            count_y = gaussian_filter1d(count_y.astype(np.float64),
+                                        sigma=smooth_sigma)
 
         # Convert to python list
         count_x = [float(i) for i in count_x]

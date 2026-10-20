@@ -592,3 +592,193 @@ class TestSmoothingKeepsMeasurements:
         values[150] = 9.0           # isolated, far from the dense stretch
         smoothed = pycoQC_plot._smooth_with_gaps(values, sigma=sigma)
         assert np.isfinite(smoothed[150])
+
+
+class TestCoverageSpansEveryBin:
+    """_binned_coverage lays each alignment over the bins it really
+    touches. Deriving the last bin by flooring the end position lost the
+    final one, which only shows up when the bin width is not a whole
+    number of bases."""
+
+    @staticmethod
+    def _cov(starts, ends, total_len, nbins):
+        import numpy as np
+        return pycoQC_plot._binned_coverage(
+            np.asarray(starts, dtype=np.float64),
+            np.asarray(ends, dtype=np.float64), total_len, nbins)
+
+    def test_a_reference_covered_end_to_end_is_uniform(self):
+        import numpy as np
+        # 1000 bases over 1500 bins: width 2/3 of a base, so most bin ends
+        # fall inside a base rather than on a boundary.
+        cov = self._cov([0], [1000], 1000, 1500)
+        assert np.allclose(cov, 1.0)
+
+    def test_the_bin_holding_the_last_base_is_counted(self):
+        cov = self._cov([0], [100], 1000, 7)
+        assert cov[0] > 0
+
+    def test_an_alignment_shorter_than_a_bin_is_not_dropped(self):
+        cov = self._cov([500], [520], 1000, 10)
+        assert cov.sum() > 0
+
+
+class TestHistogramsKeepTheirReads:
+    """The smoothed counts were written back into an integer array, so
+    every fractional count was truncated towards zero. A small run lost
+    most of its reads and a large one a percent or so."""
+
+    def test_a_handful_of_reads_are_all_represented(self):
+        import numpy as np
+        _, y = pycoQC_plot._compute_hist([800, 900, 1000, 1100, 1200, 1300])
+        assert np.isclose(np.sum(y), 6.0)
+
+    def test_a_full_run_conserves_its_total(self, plotter):
+        import numpy as np
+        parser, _ = plotter
+        lengths = parser.reads_df["read_len"]
+        _, y = pycoQC_plot._compute_hist(lengths)
+        assert np.isclose(np.sum(y), len(lengths))
+
+
+class TestPartlyDemultiplexedRuns:
+    """Only part of a run may carry a barcode. The blanks have to be
+    named, because sorting strings against missing values raises."""
+
+    def test_reads_with_no_barcode_become_unclassified(self, tmp_path):
+        summary = write_summary(tmp_path / "s.txt", n=600)
+        df = pd.read_csv(summary, sep="\t")
+        df.loc[::3, "barcode_arrangement"] = None
+        df.to_csv(summary, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(summary), quiet=True)
+        assert not parser.reads_df["barcode"].isna().any()
+        assert "unclassified" in set(parser.reads_df["barcode"])
+
+    def test_the_barcode_table_accounts_for_every_read(self, tmp_path):
+        summary = write_summary(tmp_path / "s.txt", n=600)
+        df = pd.read_csv(summary, sep="\t")
+        df.loc[::3, "barcode_arrangement"] = None
+        df.to_csv(summary, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(summary), quiet=True)
+        p = pycoQC_plot(parser, quiet=True)
+        reads = p.basecall_summary_per_barcode()["data"][0]["cells"]["values"][1]
+        assert sum(reads) == 600
+
+
+class TestBarcodeFileWithABarcodedSummary:
+    """barcode_split asks the parser not to rename anything, so the
+    summary's own column arrives as barcode_arrangement. Leaving it beside
+    the barcode file's column gave two barcode columns once barcode_split
+    renamed it, and grouping then failed."""
+
+    def test_split_runs_when_both_sources_carry_barcodes(self, tmp_path):
+        from pycoQC.Barcode_split import barcode_split
+        summary = write_summary(tmp_path / "s.txt", n=600)
+        barcodes = tmp_path / "bc.txt"
+        pd.DataFrame({
+            "read_id": [f"r{i:06d}" for i in range(600)],
+            # Disagrees with the summary, so it is clear which source won.
+            "barcode_arrangement": ["bcA" if i % 2 else "bcB"
+                                    for i in range(600)],
+        }).to_csv(barcodes, sep="\t", index=False)
+        out = tmp_path / "split"
+
+        barcode_split(summary_file=str(summary), barcode_file=str(barcodes),
+                      output_dir=str(out), quiet=True)
+
+        written = sorted(p.name for p in out.iterdir())
+        assert written == ["sequencing_summary_bcA.txt",
+                           "sequencing_summary_bcB.txt"]
+
+
+class TestCoverageLineMatchesTheArea:
+    """The dotted overall coverage line is drawn across the coverage area,
+    so it has to be the mean of it. It was computed from align_len, the
+    number of aligned query bases, while the area integrates how much
+    reference each alignment spans; a deletion heavy run put the line well
+    below its own curve."""
+
+    def test_the_line_sits_on_the_mean_of_the_curve(self, tmp_path):
+        import numpy as np
+        pysam = pytest.importorskip("pysam")
+
+        ref_len = 60000
+        unsorted = tmp_path / "unsorted.bam"
+        header = {"HD": {"VN": "1.6", "SO": "unknown"},
+                  "SQ": [{"SN": "chr1", "LN": ref_len}]}
+        rng = random.Random(11)
+        n = 300
+        with pysam.AlignmentFile(str(unsorted), "wb", header=header) as bam:
+            for i in range(n):
+                # 1,000 aligned query bases spanning 1,500 reference bases.
+                rec = pysam.AlignedSegment()
+                rec.query_name = f"r{i:05d}"
+                rec.query_sequence = "".join(rng.choice("ACGT")
+                                             for _ in range(1000))
+                rec.query_qualities = pysam.qualitystring_to_array("I" * 1000)
+                rec.flag = 0
+                rec.reference_id = 0
+                rec.reference_start = rng.randint(0, ref_len - 1600)
+                rec.mapping_quality = 60
+                rec.cigartuples = [(0, 500), (2, 500), (0, 500)]
+                rec.set_tag("NM", 500, "i")
+                bam.write(rec)
+        final = tmp_path / "aligned.bam"
+        pysam.sort("-o", str(final), str(unsorted))
+        pysam.index(str(final))
+
+        summary = tmp_path / "s.txt"
+        pd.DataFrame({
+            "read_id": [f"r{i:05d}" for i in range(n)],
+            "run_id": "run1",
+            "channel": [i % 512 + 1 for i in range(n)],
+            "start_time": [float(i) for i in range(n)],
+            "sequence_length_template": 1000,
+            "mean_qscore_template": 10.0,
+        }).to_csv(summary, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(summary), bam_file=str(final),
+                              quiet=True)
+        fig = pycoQC_plot(parser, quiet=True).alignment_coverage()
+        area, line = fig["data"][0]["y"], fig["data"][1]["y"][0]
+
+        # The reference span is half again the aligned query length, so the
+        # old figure was out by a third.
+        assert line == pytest.approx(np.mean(area), rel=0.02)
+
+
+class TestJsonReportIsStrictJson:
+
+    def test_a_run_with_no_passing_reads_still_parses(self, tmp_path):
+        """Missing statistics were written as a bare NaN, which Python
+        reads back but jq, R and JavaScript all reject."""
+        import json
+
+        from pycoQC.pycoQC_report import pycoQC_report
+        summary = write_summary(tmp_path / "s.txt", n=600)
+        df = pd.read_csv(summary, sep="\t")
+        df["mean_qscore_template"] = 2.0        # nothing passes
+        df.to_csv(summary, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(summary), quiet=True)
+        report = pycoQC_report(parser, pycoQC_plot(parser, quiet=True),
+                               quiet=True)
+        out = tmp_path / "r.json"
+        report.json_report(str(out))
+
+        text = out.read_text()
+        assert "NaN" not in text
+        json.loads(text)
+
+
+class TestHistogramBinPositions:
+
+    def test_a_count_is_drawn_at_the_centre_of_its_bin(self):
+        """Labelling a bin by its right edge put every count half a bin too
+        far along the axis, which a log scale makes obvious."""
+        x, y = pycoQC_plot._compute_hist([100] * 50 + [1000] * 50,
+                                         smooth_sigma=0, nbins=3)
+        # Two bins between 100 and 1000, so the centres are 325 and 775.
+        assert x == pytest.approx([325.0, 775.0])

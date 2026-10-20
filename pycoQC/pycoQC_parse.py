@@ -313,11 +313,16 @@ class pycoQC_parse():
             # A summary written with barcoding already has a barcode column,
             # and merging another one left barcode_x and barcode_y rather
             # than barcode, so the next line raised KeyError. The separate
-            # file is the more specific source, so it wins.
-            if "barcode" in df:
-                self.logger.debug(
-                    "\tBarcodes in the summary are replaced by the barcode file")
-                df = df.drop(columns="barcode")
+            # file is the more specific source, so it wins. Without the
+            # renaming pass that cleanup does, the summary's column is still
+            # called barcode_arrangement, and leaving it in place gave the
+            # caller two barcode columns as soon as it renamed that one,
+            # which is what Barcode_split does.
+            for col in ("barcode", "barcode_arrangement"):
+                if col in df:
+                    self.logger.debug(
+                        "\tBarcodes in the summary are replaced by the barcode file")
+                    df = df.drop(columns=col)
             df = pd.merge(df, barcode_reads_df, on="read_id", how="left")
             # Same here: reads absent from the barcode file kept a missing
             # barcode instead of being marked unclassified.
@@ -338,6 +343,19 @@ class pycoQC_parse():
             if col in df and df[col].isna().all():
                 self.logger.info("\tNo {} information available".format(col))
                 df = df.drop(columns=col)
+
+        # A partly filled barcode column is normal: only some of a run may
+        # have been demultiplexed, and the converters leave the field empty
+        # for a read with no barcode tag. Those blanks have to be named,
+        # because sorting a mixture of strings and nan raises, which took
+        # the whole report down, while the plots that did not sort quietly
+        # left those reads out. The separate barcode file was already
+        # handled this way.
+        if "barcode" in df and df["barcode"].isna().any():
+            missing = int(df["barcode"].isna().sum())
+            self.logger.info(
+                "\t{:,} reads without a barcode marked unclassified".format(missing))
+            df["barcode"] = df["barcode"].fillna("unclassified")
 
         # Drop lines containing NA values
         self.logger.info("\tDiscarding lines containing NA values")
