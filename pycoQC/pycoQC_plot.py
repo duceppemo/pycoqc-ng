@@ -80,27 +80,48 @@ class pycoQC_plot():
             self.all_sample_df = self.all_df
             self.all_scaling_factor = 1
 
-        # Pass df
-        self.pass_df = self.all_df.query("mean_qscore>={} and read_len>={}".format(min_pass_qual, min_pass_len))
+        # Pass df. Without basecalls there is no quality score to threshold
+        # on, so the basecaller's own verdict is used where it recorded one:
+        # MinKNOW sorts its files into pass and fail folders, and the POD5
+        # and FAST5 converters carry that through as passes_filtering.
+        self.pass_df = self._pass_reads(min_pass_qual, min_pass_len)
         if sample and len(self.pass_df) > sample:
             self.pass_sample_df = self.pass_df.sample(n=sample, random_state=SEED)
             self.pass_scaling_factor = len(self.pass_df) / sample
         else:
             self.pass_sample_df = self.pass_df
             self.pass_scaling_factor = 1
-        self.logger.info("\tFound {:,} pass reads (qual >= {} and length >= {})".format(
-            len(self.pass_df), min_pass_qual, min_pass_len))
+        if self.has_basecalls:
+            self.logger.info("\tFound {:,} pass reads (qual >= {} and length >= {})".format(
+                len(self.pass_df), min_pass_qual, min_pass_len))
+        else:
+            self.logger.info("\tFound {:,} pass reads".format(len(self.pass_df)))
 
         # Fail df
-        self.fail_df = self.all_df.query("mean_qscore<{} or read_len<{}".format(min_pass_qual, min_pass_len))
+        self.fail_df = self.all_df.drop(index=self.pass_df.index)
         if sample and len(self.fail_df) > sample:
             self.fail_sample_df = self.fail_df.sample(n=sample, random_state=SEED)
             self.fail_scaling_factor = len(self.fail_df) / sample
         else:
             self.fail_sample_df = self.fail_df
             self.fail_scaling_factor = 1
-        self.logger.info("\tFound {:,} fail reads (qual < {} and length < {})".format(
-            len(self.fail_df), min_pass_qual, min_pass_len))
+        self.logger.info("\tFound {:,} fail reads".format(len(self.fail_df)))
+
+    def _pass_reads(self, min_pass_qual, min_pass_len):
+        """The reads counted as passing, however this run records that."""
+        if self.has_basecalls:
+            return self.all_df.query("mean_qscore>={} and read_len>={}".format(
+                min_pass_qual, min_pass_len))
+
+        if "passes_filtering" in self.all_df:
+            flag = self.all_df["passes_filtering"]
+            if flag.dtype != bool:
+                flag = flag.astype(str).str.strip().str.lower().isin(
+                    ("true", "1", "yes", "pass"))
+            return self.all_df[flag]
+
+        # Nothing has judged these reads, so none of them has failed.
+        return self.all_df
 
     def __str__(self):
         m = ""
@@ -135,6 +156,33 @@ class pycoQC_plot():
     @property
     def has_barcodes(self):
         return "barcode" in self.all_df
+
+    @property
+    def has_basecalls(self):
+        """Whether anything has been basecalled.
+
+        A POD5 file, or a FAST5 holding signal only, records which pore
+        produced which read and when, but no sequence: there is no read
+        length and no quality score until a basecaller has run. The run is
+        still worth describing, so the plots that need a sequence say so and
+        are skipped rather than the whole report failing.
+        """
+        return "read_len" in self.all_df and "mean_qscore" in self.all_df
+
+    @property
+    def has_duration(self):
+        return "duration" in self.all_df
+
+    def _require_duration(self):
+        if not self.has_duration:
+            raise pycoQCError("No read duration information available")
+
+    def _require_basecalls(self):
+        if not self.has_basecalls:
+            raise pycoQCError(
+                "No basecall information available. This summary holds raw "
+                "signal only: basecall the run to get read lengths and "
+                "quality scores.")
 
     @property
     def has_gc_percent(self):
@@ -308,21 +356,37 @@ class pycoQC_plot():
         d["run"]["active_channels"] = self._active_channels(df)
         d["run"]["runid_number"] = self._runid_number(df)
         d["run"]["barcodes_number"] = self._barcodes_number(df)
-        d["basecall"] = OrderedDict()
-        d["basecall"]["reads_number"] = self._basecalled_reads(df)
-        d["basecall"]["bases_number"] = self._basecalled_bases(df)
-        d["basecall"]["N50"] = self._basecall_N50(df)
-        d["basecall"]["len_percentiles"] = self._compute_percentiles(df["read_len"])
-        d["basecall"]["qual_score_percentiles"] = self._compute_percentiles(df["mean_qscore"])
+        # Everything under "basecall" describes a sequence, which a raw
+        # signal run does not have yet. What it does have is how long each
+        # read occupied its pore, which is reported in its place.
+        if self.has_basecalls:
+            d["basecall"] = OrderedDict()
+            d["basecall"]["reads_number"] = self._basecalled_reads(df)
+            d["basecall"]["bases_number"] = self._basecalled_bases(df)
+            d["basecall"]["N50"] = self._basecall_N50(df)
+            d["basecall"]["len_percentiles"] = self._compute_percentiles(df["read_len"])
+            d["basecall"]["qual_score_percentiles"] = self._compute_percentiles(df["mean_qscore"])
 
-        x, y = self._compute_hist(data=df["read_len"], x_scale="log", smooth_sigma=2, nbins=100)
-        d["basecall"]["len_hist"] = OrderedDict()
-        d["basecall"]["len_hist"]["x"] = x
-        d["basecall"]["len_hist"]["y"] = y
-        x, y = self._compute_hist(data=df["mean_qscore"], x_scale="linear", smooth_sigma=2, nbins=100)
-        d["basecall"]["qual_score_hist"] = OrderedDict()
-        d["basecall"]["qual_score_hist"]["x"] = x
-        d["basecall"]["qual_score_hist"]["y"] = y
+            x, y = self._compute_hist(data=df["read_len"], x_scale="log", smooth_sigma=2, nbins=100)
+            d["basecall"]["len_hist"] = OrderedDict()
+            d["basecall"]["len_hist"]["x"] = x
+            d["basecall"]["len_hist"]["y"] = y
+            x, y = self._compute_hist(data=df["mean_qscore"], x_scale="linear", smooth_sigma=2, nbins=100)
+            d["basecall"]["qual_score_hist"] = OrderedDict()
+            d["basecall"]["qual_score_hist"]["x"] = x
+            d["basecall"]["qual_score_hist"]["y"] = y
+        else:
+            d["signal"] = OrderedDict()
+            d["signal"]["reads_number"] = len(df)
+            if self.has_duration:
+                d["signal"]["median_duration"] = self._median_or_nan(df["duration"])
+                d["signal"]["total_duration"] = float(df["duration"].sum())
+                d["signal"]["duration_percentiles"] = self._compute_percentiles(df["duration"])
+                x, y = self._compute_hist(data=df["duration"], x_scale="log",
+                                          smooth_sigma=2, nbins=100)
+                d["signal"]["duration_hist"] = OrderedDict()
+                d["signal"]["duration_hist"]["x"] = x
+                d["signal"]["duration_hist"]["y"] = y
 
         if self.has_alignment:
             d["alignment"] = OrderedDict()
@@ -400,6 +464,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
         # Extract data
         data = []
         i = 0
@@ -516,6 +581,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
 
         # Verify that barcode information are available
         if not self.has_barcodes:
@@ -642,6 +708,124 @@ class pycoQC_plot():
         label = "{} Reads".format(df_level.capitalize())
         return label, data_dict
 
+    def signal_summary(self,
+                       width: int = None,
+                       height: int = 350,
+                       plot_title: str = "Signal summary"):
+        """Summarise a run that has not been basecalled.
+
+        What a POD5 or a raw FAST5 holds is the signal each pore produced
+        and when, so this counts reads and the time they spent in a pore.
+        There is deliberately no base count: bases do not exist until a
+        basecaller has read the signal, and an estimate from the signal
+        length would be a guess dressed up as a measurement.
+
+        * width
+            With of the plotting area in pixel
+        * height
+            Height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        self.logger.info("\t\tComputing plot")
+
+        header = ["Status", "Reads", "Median Duration (s)", "Pore Time (h)",
+                  "Active Channels"]
+        data_format = ["", ",", ".2f", ",.1f", ","]
+
+        rows = []
+        for df, status in ((self.all_df, "All Reads"),
+                           (self.pass_df, "Pass Reads"),
+                           (self.fail_df, "Fail Reads")):
+            rows.append([
+                status,
+                len(df),
+                self._median_or_nan(df["duration"]) if self.has_duration else np.nan,
+                float(df["duration"].sum()) / 3600 if self.has_duration else np.nan,
+                self._active_channels(df)])
+
+        # The table takes its values column by column.
+        return self.__summary_plot(
+            data=[*zip(*rows)], width=width, height=height,
+            plot_title=plot_title, header=header, data_format=data_format)
+
+    def read_duration_1D(self,
+                         color: str = "mediumaquamarine",
+                         nbins: int = 200,
+                         smooth_sigma: int = 2,
+                         width: int = None,
+                         height: int = 500,
+                         plot_title: str = "Read duration"):
+        """
+        Plot a distribution of how long each read occupied its pore
+        * color
+            Color of the area(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * nbins
+            Number of bins to devide the x-axis in
+        * smooth_sigma
+            standard deviation for Gaussian kernel
+        * width
+            With of the plotting area in pixel
+        * height
+            Height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        self._require_duration()
+        return self.__1D_density_plot(
+            field_name="duration",
+            plot_title=plot_title,
+            x_lab="Time in pore (s)",
+            color=color,
+            x_scale="log",
+            nbins=nbins,
+            smooth_sigma=smooth_sigma,
+            width=width,
+            height=height)
+
+    def read_duration_over_time(
+            self,
+            median_color: str = "rgb(102,168,255)",
+            quartile_color: str = "rgb(153,197,255)",
+            extreme_color: str = "rgba(153,197,255,0.5)",
+            smooth_sigma: int = 1,
+            time_bins: int = 500,
+            width: int = None,
+            height: int = 550,
+            plot_title: str = "Read duration over experiment time"):
+        """
+        Plot read duration over experiment time
+        * median_color
+            Color of median line color(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * quartile_color
+            Color of inter quartile area and lines(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * extreme_color
+            Color of inter extreme area and lines(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * smooth_sigma
+            sigma parameter for the Gaussian filter line smoothing
+        * time_bins
+            Number of bins to divide the time values in(x-axis)
+        * width
+            With of the plotting area in pixel
+        * height
+            height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        self._require_duration()
+        return self.__over_time_plot(
+            field_name="duration",
+            plot_title=plot_title,
+            y_lab="Time in pore (s)",
+            y_scale="log",
+            median_color=median_color,
+            quartile_color=quartile_color,
+            extreme_color=extreme_color,
+            smooth_sigma=smooth_sigma,
+            time_bins=time_bins,
+            width=width,
+            height=height)
+
     #~~~~~~~1D DISTRIBUTION METHODS AND HELPER~~~~~~~#
     def read_len_1D(self,
                     color: str = "lightsteelblue",
@@ -665,6 +849,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
         fig = self.__1D_density_plot(
             field_name="read_len",
             plot_title=plot_title,
@@ -699,6 +884,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
         fig = self.__1D_density_plot(
             field_name="mean_qscore",
             plot_title=plot_title,
@@ -935,6 +1121,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
         fig = self.__2D_density_plot(
             x_field_name="read_len",
             y_field_name="mean_qscore",
@@ -1285,13 +1472,15 @@ class pycoQC_plot():
         """
         self.logger.info("\t\tComputing plot")
 
-        # Prepare all data
-        lab1, dd1, ld1 = self.__output_over_time_data(df_level="all", count_level="reads", time_bins=time_bins)
-        lab2, dd2, ld2 = self.__output_over_time_data(df_level="pass", count_level="reads", time_bins=time_bins)
-        lab3, dd3, ld3 = self.__output_over_time_data(df_level="fail", count_level="reads", time_bins=time_bins)
-        lab4, dd4, ld4 = self.__output_over_time_data(df_level="all", count_level="bases", time_bins=time_bins)
-        lab5, dd5, ld5 = self.__output_over_time_data(df_level="pass", count_level="bases", time_bins=time_bins)
-        lab6, dd6, ld6 = self.__output_over_time_data(df_level="fail", count_level="bases", time_bins=time_bins)
+        # Prepare all data. Counting bases needs a sequence, so a run that
+        # has not been basecalled gets the read counts on their own.
+        count_levels = ["reads", "bases"] if self.has_basecalls else ["reads"]
+        prepared = [self.__output_over_time_data(df_level=level,
+                                                 count_level=count,
+                                                 time_bins=time_bins)
+                    for count in count_levels
+                    for level in ("all", "pass", "fail")]
+        lab1, dd1, ld1 = prepared[0]
 
         # Plot initial data
         common = {
@@ -1312,13 +1501,10 @@ class pycoQC_plot():
 
         # Create update buttons
         updatemenus = [
-            dict(type="buttons", active=0, x=-0.08  , y=0, xanchor='right', yanchor='bottom', buttons=[
-                dict(label=lab1, method='update', args=[dd1, ld1]),
-                dict(label=lab2, method='update', args=[dd2, ld2]),
-                dict(label=lab3, method='update', args=[dd3, ld3]),
-                dict(label=lab4, method='update', args=[dd4, ld4]),
-                dict(label=lab5, method='update', args=[dd5, ld5]),
-                dict(label=lab6, method='update', args=[dd6, ld6])])]
+            dict(type="buttons", active=0, x=-0.08, y=0, xanchor='right',
+                 yanchor='bottom',
+                 buttons=[dict(label=label, method='update', args=[dd, ld])
+                          for label, dd, ld in prepared])]
 
         # tweak plot layout
         layout = go.Layout(
@@ -1451,6 +1637,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
         fig = self.__over_time_plot(
             field_name="read_len",
             plot_title=plot_title,
@@ -1494,6 +1681,7 @@ class pycoQC_plot():
         * plot_title
             Title to display on top of the plot
         """
+        self._require_basecalls()
 
         fig = self.__over_time_plot(
             field_name="mean_qscore",
@@ -1943,18 +2131,14 @@ class pycoQC_plot():
         # n_channels = 3000 if self.is_promethion else 512
 
         # Prepare all data
-        lab1, dd1 = self.__channels_activity_data(df_level="all", count_level="reads", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
-        lab2, dd2 = self.__channels_activity_data(df_level="pass", count_level="reads", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
-        lab3, dd3 = self.__channels_activity_data(df_level="fail", count_level="reads", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
-        lab4, dd4 = self.__channels_activity_data(df_level="all", count_level="bases", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
-        lab5, dd5 = self.__channels_activity_data(df_level="pass", count_level="bases", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
-        lab6, dd6 = self.__channels_activity_data(df_level="fail", count_level="bases", n_channels=n_channels,
-                                                  smooth_sigma=smooth_sigma, time_bins=time_bins)
+        count_levels = ["reads", "bases"] if self.has_basecalls else ["reads"]
+        prepared = [self.__channels_activity_data(
+                        df_level=level, count_level=count,
+                        n_channels=n_channels, smooth_sigma=smooth_sigma,
+                        time_bins=time_bins)
+                    for count in count_levels
+                    for level in ("all", "pass", "fail")]
+        lab1, dd1 = prepared[0]
 
         # Plot initial data
         data = [go.Heatmap(x=dd1["x"][0], y=dd1["y"][0], z=dd1["z"][0], xgap=0.5, colorscale=colorscale,
@@ -1962,13 +2146,10 @@ class pycoQC_plot():
 
         # Create update buttons
         updatemenus = [
-            dict(type="buttons", active=0, x=-0.06, y=0, xanchor='right', yanchor='bottom', buttons=[
-                dict(label=lab1, method='restyle', args=[dd1]),
-                dict(label=lab2, method='restyle', args=[dd2]),
-                dict(label=lab3, method='restyle', args=[dd3]),
-                dict(label=lab4, method='restyle', args=[dd4]),
-                dict(label=lab5, method='restyle', args=[dd5]),
-                dict(label=lab6, method='restyle', args=[dd6])])]
+            dict(type="buttons", active=0, x=-0.06, y=0, xanchor='right',
+                 yanchor='bottom',
+                 buttons=[dict(label=label, method='restyle', args=[dd])
+                          for label, dd in prepared])]
 
         # tweak plot layout
         layout = go.Layout(
@@ -2354,6 +2535,7 @@ class pycoQC_plot():
 
     def __per_barcode_boxplot(self, field_name, plot_title, y_lab, line_color, fill_color, width, height, y_scale):
         """Private function generating boxplots plots for all per sample functions"""
+        self._require_basecalls()
 
         # Verify that barcode information are available
         if not self.has_barcodes:

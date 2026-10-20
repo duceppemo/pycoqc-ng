@@ -162,7 +162,11 @@ class Pod5_to_seq_summary():
                 elif 'unclassified' in file_name:
                     barcode = 'unclassified'
                 else:
-                    barcode = 'skip'
+                    # A run that was never demultiplexed has no barcode.
+                    # Writing "skip" here invented one, and a report then
+                    # showed every read assigned to a barcode called skip,
+                    # which is also a real MinKNOW file name token.
+                    barcode = ''
 
                 # Flag, matched on whole words so a path such as
                 # /data/failover/pod5_pass is not read as failing. pass is
@@ -219,6 +223,8 @@ class Pod5_to_seq_summary():
 
         logger.warning(
             "POD5 holds raw signal only, so this summary has no read length "
-            "or quality columns and pycoQC cannot build a report from it. "
-            "Basecall first, then use Bam_to_seq_summary or "
+            "or quality columns. pycoQC will report on the run itself: how "
+            "many reads, from which pores, when, how long each one took and "
+            "under which barcode. For read lengths, quality scores and yield, "
+            "basecall first and use Bam_to_seq_summary or "
             "Fastq_to_seq_summary.")

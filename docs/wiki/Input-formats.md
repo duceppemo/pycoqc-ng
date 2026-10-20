@@ -5,9 +5,9 @@ converter that produces one.
 
 ![How each input format reaches a report](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/input-formats.svg)
 
-The two at the bottom are raw signal. A converter will read the run metadata out of
-them, but a report needs read lengths and quality scores, and those do not exist until
-the reads are basecalled.
+The two at the bottom are raw signal. A converter reads the run metadata out of them
+and `pycoQC` reports on the run itself, but read lengths, quality scores and yield do
+not exist until the reads are basecalled.
 
 ## Sequencing summary
 
@@ -90,21 +90,40 @@ POD5 is the current raw-signal format, written by MinKNOW and read by Dorado. It
 the signal and the run metadata and **no basecalls**, so there is no read length and no
 quality score in it.
 
-> **A POD5 summary cannot be fed to `pycoQC`.** The report is built on read length and
-> quality, and neither exists until the reads are basecalled. Running `pycoQC` on one
-> stops with:
+> **A POD5 summary gives a shorter report.** There is no read length, no quality score
+> and no base count in it, so the plots built on those are left out and the report
+> covers the run itself instead: how many reads, from which pores, when, how long each
+> one held its pore, and under which barcode.
+>
+> `pycoQC` says so when it reads one:
 >
 > ```
-> Column read_len not found in the provided sequence_summary file. Read length
-> and quality only exist once the reads are basecalled, and a summary built from
-> POD5 or from raw FAST5 has neither. Basecall the run first, then build the
-> summary with Bam_to_seq_summary or Fastq_to_seq_summary.
+> WARNING: no read length or quality score in this summary, so nothing has been
+> basecalled yet. The report will cover the run itself: how many reads, from
+> which pores, when, and under which barcode.
 > ```
 >
-> Earlier versions filled those two columns with values drawn from a random normal
-> distribution so that `pycoQC` would accept the file. Every length and quality figure
-> in a report built that way was invented, including negative read lengths. Those
-> columns are no longer written.
+> Earlier versions filled the length and quality columns with values drawn from a
+> random normal distribution so that `pycoQC` would accept the file. Every length and
+> quality figure in a report built that way was invented, including negative read
+> lengths. Nothing is invented now, and there is deliberately no estimated base count:
+> bases per read can only be guessed from the signal length and a assumed
+> translocation speed, which would be a guess presented as a measurement.
+
+### What the shorter report contains
+
+| Plot | Shows |
+|---|---|
+| General run summary | duration, active channels, run ids, barcodes |
+| Signal summary | reads, median time in pore, total pore time, active channels |
+| Read duration | distribution of how long each read held its pore |
+| Reads over experiment time | cumulative and per interval read counts |
+| Time in pore over experiment time | whether reads got shorter as the run went on |
+| Activity per channel | which pores were working, and when |
+| Reads per barcode | if the file names carry barcodes |
+
+Pass and fail come from the `passes_filtering` column, which the converter reads from
+the file name, since there is no quality score to threshold on.
 
 What the summary does carry, straight from the file:
 
@@ -168,7 +187,8 @@ If the file was basecalled more than once there will be several `Basecall_1D_NNN
 groups. `--basecall_id` selects which one to read, defaulting to `0`.
 
 A FAST5 with **no** `/Analyses` group holds signal only, and the same limitation as
-POD5 applies: no length, no quality, and no `pycoQC` report.
+POD5 applies: no length, no quality, no yield, and so the shorter report described
+above.
 
 ### Which versions wrote them
 
@@ -193,7 +213,7 @@ If you still have the basecaller's own `sequencing_summary.txt`, prefer it.
 | `sequencing_summary.txt` | it directly, no conversion |
 | Dorado output | `Bam_to_seq_summary` |
 | FASTQ, and want %GC | `Fastq_to_seq_summary` |
-| POD5, and want run metadata only | `Pod5_to_seq_summary`, but it cannot build a report |
+| POD5, before basecalling | `Pod5_to_seq_summary`, for a report on the run itself |
 | Old FAST5 with basecalls in it | `Fast5_to_seq_summary` |
 | Raw signal, and want a QC report | basecall first, then BAM or FASTQ |
 

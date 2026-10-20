@@ -163,9 +163,9 @@ class TestSeveralRuns:
         with pytest.raises(pycoQCError):
             pycoQC_parse(summary_file=str(tmp_path / "nope.txt"), quiet=True)
 
-    def test_summary_without_required_columns_is_reported(self, tmp_path):
+    def test_summary_without_a_read_id_is_reported(self, tmp_path):
         bad = tmp_path / "bad.txt"
-        pd.DataFrame({"read_id": ["a", "b"], "something": [1, 2]}).to_csv(
+        pd.DataFrame({"name": ["a", "b"], "something": [1, 2]}).to_csv(
             bad, sep="\t", index=False)
         with pytest.raises(pycoQCError, match="not found"):
             pycoQC_parse(summary_file=str(bad), quiet=True)

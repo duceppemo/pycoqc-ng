@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 516" width="1000" height="516"
-     role="img" aria-label="Input formats: a basecaller sequencing summary is read directly, while FASTQ, unaligned BAM and basecalled FAST5 are converted into one; POD5 and signal-only FAST5 yield run metadata but no report, because they hold no basecalls">
+     role="img" aria-label="Input formats: a basecaller sequencing summary is read directly, while FASTQ, unaligned BAM and basecalled FAST5 are converted into one; POD5 and signal-only FAST5 hold no basecalls, so they give a shorter report about the run itself">
   <title>pycoqc-ng input formats</title>
   <style>
     .card     { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; }
     .pill     { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; }
     .pill-none{ fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; stroke-dasharray: 5 5; }
     .summary  { fill: #ffffff; stroke: #2f8f5b; stroke-width: 2; }
-    .dead     { fill: #fffbeb; stroke: #d9a406; stroke-width: 2; }
+    .partial  { fill: #fffbeb; stroke: #d9a406; stroke-width: 2; }
     .core     { fill: #1d6fb8; stroke: none; }
     .name     { font-family: "DejaVu Sans Mono", "Menlo", monospace; font-size: 13.5px; fill: #334155; }
     .label    { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #334155; }
@@ -105,17 +105,23 @@
   <text class="note"  x="710" y="210" text-anchor="middle">read id, length, quality,</text>
   <text class="note"  x="710" y="226" text-anchor="middle">channel, time, barcode</text>
 
-  <rect class="dead" x="600" y="368" width="220" height="128" rx="11"/>
-  <text class="warn"      x="710" y="412" text-anchor="middle">No report</text>
-  <text class="note-warn" x="710" y="434" text-anchor="middle">nothing is basecalled yet,</text>
-  <text class="note-warn" x="710" y="450" text-anchor="middle">so there is no read length</text>
-  <text class="note-warn" x="710" y="466" text-anchor="middle">and no quality score</text>
+  <rect class="partial" x="600" y="368" width="220" height="128" rx="11"/>
+  <text class="warn"      x="710" y="406" text-anchor="middle">Run table, no sequence</text>
+  <text class="note-warn" x="710" y="428" text-anchor="middle">which pore, when, how long,</text>
+  <text class="note-warn" x="710" y="444" text-anchor="middle">which barcode. No read</text>
+  <text class="note-warn" x="710" y="460" text-anchor="middle">length, quality or yield</text>
+  <text class="note-warn" x="710" y="482" text-anchor="middle">until the run is basecalled</text>
 
   <g class="wire-ok" marker-end="url(#a-ok)">
-    <path d="M 828 200 L 856 200"/>
+    <path d="M 828 186 L 856 186"/>
+  </g>
+  <g class="wire-warn" marker-end="url(#a-warn)">
+    <path d="M 828 430 C 844 430, 846 268, 856 226"/>
   </g>
 
-  <rect class="core" x="860" y="160" width="120" height="80" rx="12"/>
-  <text class="corename" x="920" y="194" text-anchor="middle">pycoQC</text>
-  <text class="corenote" x="920" y="214" text-anchor="middle">html · pdf · json</text>
+  <rect class="core" x="860" y="150" width="120" height="86" rx="12"/>
+  <text class="corename" x="920" y="186" text-anchor="middle">pycoQC</text>
+  <text class="corenote" x="920" y="208" text-anchor="middle">html · pdf · json</text>
+  <text class="note"      x="920" y="258" text-anchor="middle">full report</text>
+  <text class="note-warn" x="920" y="276" text-anchor="middle">shorter report</text>
 </svg>

@@ -96,6 +96,10 @@ Pod5_to_seq_summary   -f pod5_dir/  -s sequencing_summary.txt
 Fast5_to_seq_summary  -f fast5_dir/ -s sequencing_summary.txt
 ```
 
+POD5, and a FAST5 holding signal only, carry no sequence, so a summary built from
+either gives a shorter report: the run and the pores, without read lengths, quality
+scores or yield.
+
 Shared options:
 
 | Option | Default | Description |

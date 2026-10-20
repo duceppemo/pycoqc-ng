@@ -62,6 +62,19 @@ to see which and why.
 * barcode plots need barcodes, in the summary or via `-b`
 * %GC plots need a summary built from FASTQ or BAM; the basecaller's own summary carries
   no per-read %GC
+* read length and quality plots need a basecalled run; see below
+
+## Can I run it before basecalling?
+
+Yes, with less in the report. A POD5, or a FAST5 holding signal only, records which
+pore produced which read, when and for how long, but no sequence, so there is no read
+length, no quality score and no yield. Build the summary with `Pod5_to_seq_summary` or
+`Fast5_to_seq_summary` and `pycoQC` reports on the run itself: reads over time, time in
+pore, activity per channel and reads per barcode.
+
+There is deliberately no estimated base count. Bases can only be guessed from the
+signal length and an assumed translocation speed, and a guess printed next to measured
+numbers is indistinguishable from one.
 
 ## All my reads are unclassified
 
@@ -77,6 +90,10 @@ pycoQC -f sequencing_summary.txt -o report.html --min_barcode_percent 0
 `pycoQC` applies its own threshold, `--min_pass_qual` 7 by default, rather than reading
 the basecaller's flag. Set it to match your basecaller's setting if you want the numbers
 to agree.
+
+On a run that has not been basecalled there is no quality score to threshold on, so the
+`passes_filtering` column is used as it stands. The POD5 and FAST5 converters take it
+from the file name, which is how MinKNOW records it.
 
 ## Can I use it on a run that is still going?
 

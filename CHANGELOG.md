@@ -1,5 +1,43 @@
 # Changelog
 
+### Unreleased
+
+**Added**
+
+* A report for runs that have not been basecalled. POD5, and a FAST5 holding
+  signal only, carry no sequence, so `pycoQC` used to stop with an error.
+  It now reports on the run itself: reads over time, time in pore, activity
+  per channel and reads per barcode, with a signal summary table in place of
+  the basecall one. There is deliberately no estimated base count, since
+  bases can only be guessed from the signal length.
+* Pass and fail come from the `passes_filtering` column when there is no
+  quality score to threshold on.
+
+**Fixed**
+
+* `--filter_calibration` did nothing on any Guppy 2.2+ run, which names the
+  column `calibration_strand_genome` rather than `..._genome_template`.
+  Recognising the name alone was not enough: the filter kept a list of the
+  markers meaning "no control found", and Guppy's markers are not Albacore's,
+  so the whole run would have been discarded as calibration strands.
+* Barcodes written as bare numbers, as Deepbinner writes them, were typed as
+  numbers and so split across chunks, became `6.0` after a merge, and could
+  not be sorted against `unclassified`.
+* The FASTQ and BAM converters counted elapsed time from the first read in
+  the directory rather than from the start of each run, so two one hour runs
+  recorded two days apart were reported as a single 50 hour run.
+* Reads missing an optional column were discarded from the read count, the
+  yield and the N50.
+* Histogram bins: the shortest read fell outside the log bins, the axis ran a
+  quarter of a decade past the longest read, the 1D density was drawn half a
+  bin to the right, and the 2D density half a bin left and down.
+* The yield on the over time plot disagreed with the summary table, because
+  bases were estimated from a sample scaled by the ratio of read counts.
+* The two mean coverage figures in one report measured different things.
+* The barcode figure's buttons took two clicks and only updated the table;
+  at 96 barcodes the legend, the pie and the table were unreadable or cut
+  off, in the PDF as well.
+
 ### 2026-10-19 — pycoqc-ng 3.0.0
 
 First release on PyPI: `pip install pycoqc-ng`

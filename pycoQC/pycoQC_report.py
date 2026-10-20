@@ -442,9 +442,18 @@ class pycoQC_report ():
                     "Falling back to the default configuration.".format(
                         config_file, E))
 
-        # Last use the default hardcoded config_dict
+        # Last use the default hardcoded config_dict. A run that has not
+        # been basecalled has no read lengths or quality scores, so most of
+        # the usual plots would be skipped one after another and the report
+        # would be mostly empty; it gets its own set describing the run
+        # itself instead.
+        if self.plotter.has_basecalls:
+            name = "templates/pycoQC_config.json"
+        else:
+            self.logger.debug("\tNo basecalls: using the raw signal configuration")
+            name = "templates/pycoQC_config_signal.json"
         self.logger.debug("\tRead default configuration file")
-        config_json = files("pycoQC").joinpath("templates/pycoQC_config.json")
+        config_json = files("pycoQC").joinpath(name)
         return json.loads(config_json.read_text())
 
     def _get_jinja_template(self, template_file=None):

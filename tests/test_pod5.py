@@ -109,9 +109,13 @@ class TestFileNameHeuristics:
         assert len(barcoded) == 30
         assert barcoded["read_id"].nunique() == 30
 
-    def test_name_without_barcode_is_marked_skip(self, pod5_summary):
+    def test_a_run_that_was_never_demultiplexed_has_no_barcode(
+            self, pod5_summary):
+        """Writing "skip" invented a barcode, and the report then showed
+        every read under one called skip, which is also a real MinKNOW file
+        name token."""
         df = pd.read_csv(pod5_summary, sep="\t")
-        assert set(df["barcode_arrangement"]) == {"skip"}
+        assert df["barcode_arrangement"].isna().all()
 
 
 class TestFileDiscovery:
@@ -140,19 +144,41 @@ class TestFileDiscovery:
                                 threads=2)
 
 
-class TestCannotFeedPycoQC:
+class TestReportFromRawSignal:
+    """A POD5 summary has no read lengths or quality scores, but it does
+    record which pore produced which read, when, for how long and under
+    which barcode. That is worth a report of its own."""
 
-    def test_error_explains_what_to_do(self, pod5_summary, tmp_path):
-        """A POD5 summary has no basecall columns. Naming the internal column
-        alone left no clue, so the message says why and what to do instead."""
+    def test_a_report_is_produced(self, pod5_summary, tmp_path):
         from pycoQC.pycoQC import pycoQC
-        with pytest.raises(pycoQCError) as excinfo:
-            pycoQC(summary_file=str(pod5_summary),
-                   html_outfile=str(tmp_path / "r.html"), quiet=True)
-        message = str(excinfo.value)
-        assert "read_len" in message
-        assert "basecalled" in message
-        assert "Bam_to_seq_summary" in message
+        out = tmp_path / "r.html"
+        pycoQC(summary_file=str(pod5_summary), html_outfile=str(out),
+               quiet=True)
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_it_holds_the_signal_plots_and_not_the_basecall_ones(
+            self, pod5_summary, tmp_path):
+        from pycoQC.pycoQC import pycoQC
+        out = tmp_path / "r.html"
+        pycoQC(summary_file=str(pod5_summary), html_outfile=str(out),
+               quiet=True)
+        page = out.read_text()
+        assert "Signal summary" in page
+        assert "Basecalled reads length" not in page
+
+    def test_the_json_reports_signal_rather_than_basecalls(
+            self, pod5_summary, tmp_path):
+        import json
+        from pycoQC.pycoQC import pycoQC
+        out = tmp_path / "r.json"
+        pycoQC(summary_file=str(pod5_summary), json_outfile=str(out),
+               quiet=True)
+        stats = json.loads(out.read_text())["All Reads"]
+        assert "signal" in stats
+        # Bases do not exist until something has been basecalled, and an
+        # estimate from the signal length would be a guess.
+        assert "basecall" not in stats
 
     @pytest.mark.parametrize("name, passing", [
         ("FAW_pass_barcode01_0.pod5", True),

@@ -81,7 +81,7 @@ If you have no summary file, build one from the basecaller output first:
 # Dorado unaligned BAM
 Bam_to_seq_summary -f bam_dir/ -s sequencing_summary.txt
 
-# POD5
+# POD5 (raw signal: gives a shorter report, with no read length or quality)
 Pod5_to_seq_summary -f pod5_dir/ -s sequencing_summary.txt
 
 # FASTQ (adds %GC)

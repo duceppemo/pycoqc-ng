@@ -182,12 +182,17 @@ class pycoQC_parse():
 
             df = self._select_df_columns(
                 df=df,
-                required_colnames=["read_id", "read_len", "mean_qscore"],
-                # Run metadata is optional: a plain fastq, an Illumina run or
-                # any basecaller output without ONT headers carries none of
-                # it. Plots that need a missing column are skipped.
-                optional_colnames=["run_id", "channel", "start_time",
-                                   "calibration", "barcode", "%GC"])
+                required_colnames=["read_id"],
+                # Everything else is optional: a plain fastq, an Illumina run
+                # or any basecaller output without ONT headers carries none
+                # of the run metadata, and a POD5 or raw FAST5 summary has no
+                # read length or quality score because nothing has been
+                # basecalled yet. Plots that need a missing column are
+                # skipped, so each input gets the report it can support.
+                optional_colnames=["read_len", "mean_qscore", "run_id",
+                                   "channel", "start_time", "duration",
+                                   "calibration", "barcode", "%GC",
+                                   "passes_filtering"])
 
         # Collect stats
         n = len(df)
@@ -431,14 +436,16 @@ class pycoQC_parse():
                     "\t\t{:,} reads have no {} and are left out of {}".format(
                         int(df[col].isna().sum()), col, plots))
 
-        # Filter out zero length reads
-        self.logger.info("\tFiltering out zero length reads")
-        l = len(df)
-        df = df[(df["read_len"] > 0)]
-        n = l-len(df)
-        self.logger.info("\t\t{:,} reads discarded".format(n))
-        self.counter["Zero length reads discarded"] = n
-        self._require_reads(df, "discarding zero length reads")
+        # Filter out zero length reads. Nothing to do for a run that has
+        # not been basecalled: a read with no length is not an empty read.
+        if "read_len" in df:
+            self.logger.info("\tFiltering out zero length reads")
+            l = len(df)
+            df = df[(df["read_len"] > 0)]
+            n = l-len(df)
+            self.logger.info("\t\t{:,} reads discarded".format(n))
+            self.counter["Zero length reads discarded"] = n
+            self._require_reads(df, "discarding zero length reads")
 
         # Filter out reads with duplicated read_id
         if self.filter_duplicated:
@@ -580,6 +587,12 @@ class pycoQC_parse():
 
         # Save final df
         self.counter["Valid reads"] = len(df)
+        if "read_len" not in df:
+            self.logger.warning(
+                "WARNING: no read length or quality score in this summary, so "
+                "nothing has been basecalled yet. The report will cover the "
+                "run itself: how many reads, from which pores, when, and "
+                "under which barcode.")
         if len(df) < 500:
             self.logger.warning("WARNING: Low number of reads found. This is likely to lead to errors when trying to generate plots")
 
@@ -633,18 +646,6 @@ class pycoQC_parse():
         for col in required_colnames:
             if col in df:
                 col_found.append(col)
-            elif col in ("read_len", "mean_qscore"):
-                # These two only exist once the reads have been basecalled.
-                # A summary built from POD5, or from a FAST5 holding signal
-                # only, has neither, and naming the internal column alone
-                # left no clue what to do about it.
-                raise pycoQCError(
-                    "Column {} not found in the provided sequence_summary "
-                    "file. Read length and quality only exist once the reads "
-                    "are basecalled, and a summary built from POD5 or from "
-                    "raw FAST5 has neither. Basecall the run first, then "
-                    "build the summary with Bam_to_seq_summary or "
-                    "Fastq_to_seq_summary.".format(col))
             else:
                 raise pycoQCError("Column {} not found in the provided sequence_summary file".format(col))
         for col in optional_colnames:
