@@ -6,6 +6,7 @@ from os import access, R_OK, listdir, path, makedirs
 import inspect
 from glob import iglob, glob
 import logging
+import re
 from collections import Counter, OrderedDict
 
 # Third party imports
@@ -16,6 +17,10 @@ import pysam as ps
 
 
 #~~~~~~~~~~~~~~CUSTOM EXCEPTION AND WARN CLASSES~~~~~~~~~~~~~~#
+# Anything that is not a letter or a digit separates words in a path.
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+
+
 class pycoQCError(Exception):
     """ Basic exception class for pycoQC package """
     pass
@@ -62,6 +67,25 @@ def mean_qscore(qualities, phred33=False):
     # than the table.
     counts = np.bincount(codes, minlength=256)
     return float(-10.0 * np.log10(counts @ table / codes.size))
+
+
+def path_has_token(path, token):
+    """Is `token` a whole word anywhere in this path?
+
+    The basecallers separate their output into fastq_pass and fastq_fail
+    directories, and name files like FAW88668_pass_barcode06_0.pod5, so where
+    a file sits says whether its reads passed. Testing the whole path for the
+    substring "fail" misread any run stored under a directory such as
+    failsafe_backup or /mnt/failover, marking every read as failing. Only
+    whole words between the separators count.
+
+    * path
+        A file path.
+    * token
+        The word to look for, compared without regard to case.
+    """
+    words = _TOKEN_SPLIT.split(str(path).lower())
+    return token.lower() in words
 
 
 def parse_timestamp(value):

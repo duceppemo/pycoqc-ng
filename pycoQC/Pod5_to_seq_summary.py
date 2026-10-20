@@ -9,7 +9,7 @@ import pod5 as p5
 from tqdm import tqdm
 
 # Local imports
-from pycoQC.common import pycoQCError, recursive_file_gen
+from pycoQC.common import path_has_token, pycoQCError, recursive_file_gen
 
 # Disable multithreading for MKL and openBlas
 
@@ -162,12 +162,14 @@ class Pod5_to_seq_summary():
                 else:
                     barcode = 'skip'
 
-                # Flag
-                if 'pass' in file_name:
+                # Flag, matched on whole words so a path such as
+                # /data/failover/pod5_pass is not read as failing. pass is
+                # still tested first, so it wins if a name holds both.
+                if path_has_token(file_name, 'pass'):
                     flag = 'TRUE'
-                elif 'fail' in file_name:
+                elif path_has_token(file_name, 'fail'):
                     flag = 'FALSE'
-                elif 'skip' in file_name:
+                elif path_has_token(file_name, 'skip'):
                     flag = 'FALSE'
                 else:
                     flag = 'TRUE'  # For pod5 converted from fast5?

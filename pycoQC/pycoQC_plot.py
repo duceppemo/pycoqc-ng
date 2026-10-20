@@ -1940,8 +1940,11 @@ class pycoQC_plot():
             bins = np.linspace(t.min(), t.max(), num=time_bins)
             t = np.digitize(t, bins=bins, right=True)
 
-            # Count values per categories
-            z = np.ones((len(bins), n_channels), dtype=np.int32)
+            # Count values per categories. This started from ones, so after
+            # scaling every empty cell reported sf reads or bases on hover
+            # rather than none. The colour scale already makes zero
+            # transparent, so nothing is gained by the offset.
+            z = np.zeros((len(bins), n_channels), dtype=np.int64)
             if count_level == "bases":
                 for t_idx, channel, n_bases in zip(t, df["channel"], df["read_len"]):
                     z[t_idx][channel-1] += n_bases
@@ -1959,9 +1962,13 @@ class pycoQC_plot():
             if smooth_sigma:
                 z = gaussian_filter1d(z.astype(np.float32), sigma=smooth_sigma, axis=0)
 
-            # Define x and y-axis
+            # Define x and y-axis. digitize(right=True) returns 0 for reads
+            # at t.min, so row i holds the reads at bins[i] and y needs every
+            # bin. Dropping the first left y one shorter than z, and plotly
+            # then treats the values as brick centres and extrapolates,
+            # drawing every row one bin later than its data.
             x = ["c {}".format(i) for i in range(1, n_channels+1)]
-            y = bins[1:]
+            y = bins
 
             # Make data dict
             data_dict = dict(x=[x], y=[y], z=[z])
@@ -2137,16 +2144,25 @@ class pycoQC_plot():
 
         ref_offset_dict = self._ref_offset(self.ref_len_dict, "left", ret_type="dict")
         df = self.all_df[["ref_id", "ref_start", "ref_end", "align_len"]].dropna()
-        steps = self.total_ref_len // nbins
+        # A reference shorter than nbins would otherwise give a step of zero.
+        steps = max(1, self.total_ref_len // nbins)
         mean_cov = round(df["align_len"].sum() / self.total_ref_len, 2)
 
         # Compute coverage by interval. Mapping the offsets in pandas is much
         # faster than walking the rows with itertuples.
-        l = (df["ref_id"].map(ref_offset_dict).to_numpy()
-             + df["ref_start"].to_numpy()).astype(np.int64)
-        bins = np.arange(0, self.total_ref_len, steps)
-        l = np.digitize(l, bins)
-        y = np.bincount(l, weights=df["align_len"]) / steps
+        positions = (df["ref_id"].map(ref_offset_dict).to_numpy()
+                     + df["ref_start"].to_numpy()).astype(np.int64)
+
+        # The x axis is the bin index, and the reference labels and shading
+        # are placed at position * nbins / total_ref_len, so a read at
+        # position p belongs at bin p // steps. np.digitize against bins
+        # starting at zero returned 1 for the first bin, which left y[0]
+        # always empty and drew every bin one place right of the reference it
+        # belongs to. bincount alone also returned however many bins happened
+        # to be populated, so y and x could differ in length.
+        bin_index = np.clip(positions // steps, 0, nbins - 1)
+        y = np.bincount(bin_index, weights=df["align_len"].to_numpy(),
+                        minlength=nbins)[:nbins] / steps
 
         # Time series smoothing
         if smooth_sigma:
@@ -2154,7 +2170,7 @@ class pycoQC_plot():
 
         # Plot coverage area
         data1 = go.Scatter(
-            x=list(range(nbins+1)),
+            x=list(range(nbins)),
             y=y,
             name="Mean coverage",
             hoveron="points",

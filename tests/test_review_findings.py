@@ -322,3 +322,110 @@ class TestConfigWithoutPlotTitle:
         pycoQC(summary_file=str(guppy_summary), html_outfile=str(html),
                config_file=str(config), quiet=True)
         assert html.exists()
+
+
+@pytest.fixture(scope="module")
+def coverage_fig(tmp_path_factory, aligned_bam):
+    path = write_summary(tmp_path_factory.mktemp("cov") / "s.txt",
+                         n=600, barcodes=False)
+    df = pd.read_csv(path, sep="\t")
+    df["read_id"] = [f"r{i:05d}" for i in range(len(df))]
+    df.to_csv(path, sep="\t", index=False)
+    parser = pycoQC_parse(summary_file=str(path),
+                          bam_file=str(aligned_bam), quiet=True)
+    return pycoQC_plot(parser, quiet=True).alignment_coverage(smooth_sigma=0)
+
+
+class TestPlotBinningAlignment:
+
+    def test_coverage_x_and_y_are_the_same_length(self, coverage_fig):
+        """bincount returned however many bins happened to be populated, so
+        the trace could be shorter than its axis."""
+        trace = coverage_fig["data"][0]
+        assert len(trace["x"]) == len(trace["y"])
+
+    def test_first_bin_can_hold_coverage(self, coverage_fig):
+        """digitize against bins starting at zero never returned 0, so the
+        first bin was always empty and every bin drew one place right of the
+        reference it belongs to."""
+        import numpy as np
+        y = np.asarray(coverage_fig["data"][0]["y"], dtype=float)
+        assert y[0] > 0
+
+    def test_channel_heatmap_axis_matches_its_rows(self, guppy_summary):
+        """y was bins[1:], one shorter than z, and plotly then treats the
+        values as brick centres and draws every row one bin late."""
+        import numpy as np
+        p = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary),
+                                     quiet=True), sample=0, quiet=True)
+        trace = p.channels_activity()["data"][0]
+        assert np.asarray(trace["z"]).shape[0] == len(trace["y"])
+
+    def test_channel_heatmap_counts_are_exact(self, guppy_summary):
+        """The grid started from ones, so every empty cell reported a read
+        that was never there and the totals were inflated by the grid size."""
+        import numpy as np
+        parser = pycoQC_parse(summary_file=str(guppy_summary), quiet=True)
+        p = pycoQC_plot(parser, sample=0, quiet=True)
+        helper = getattr(p, "_pycoQC_plot__channels_activity_data")
+
+        _, reads = helper(df_level="all", count_level="reads", smooth_sigma=0)
+        assert np.asarray(reads["z"][0]).sum() == len(parser.reads_df)
+
+        _, bases = helper(df_level="all", count_level="bases", smooth_sigma=0)
+        assert np.asarray(bases["z"][0]).sum() == parser.reads_df["read_len"].sum()
+
+
+class TestPathTokenMatching:
+
+    @pytest.mark.parametrize("path, token, expected", [
+        ("/data/fastq_fail/r.fastq", "fail", True),
+        ("/data/fastq_pass/r.fastq", "pass", True),
+        ("/mnt/failsafe_backup/fastq_pass/r.fastq", "fail", False),
+        ("/mnt/failover/fastq_pass/r.fastq", "fail", False),
+        ("/data/passage_3/fastq_fail/r.fastq", "pass", False),
+        ("FAW88668_pass_barcode06_0.pod5", "pass", True),
+        ("FAW88668_fail_barcode06_0.pod5", "fail", True),
+    ])
+    def test_only_whole_words_match(self, path, token, expected):
+        from pycoQC.common import path_has_token
+        assert path_has_token(path, token) is expected
+
+    def test_a_run_under_a_failover_mount_is_not_marked_failing(self, tmp_path):
+        """Regression: the substring test marked every read of a good run as
+        failing when the run happened to live under such a directory."""
+        from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
+        d = tmp_path / "failover_mount" / "fastq_pass"
+        d.mkdir(parents=True)
+        with gzip.open(d / "r.fastq.gz", "wt") as fh:
+            for i in range(5):
+                fh.write(f"@read{i} runid=r1 ch=1 "
+                         f"start_time=2026-01-01T00:0{i}:00Z\n"
+                         "ACGTACGTAC\n+\nIIIIIIIIII\n")
+        out = tmp_path / "s.txt"
+        Fastq_to_seq_summary(fastq_dir=str(d), seq_summary_fn=str(out),
+                             threads=3)
+        df = pd.read_csv(out, sep="\t")
+        assert set(df["passes_filtering"]) == {True}
+
+
+class TestFallbacksAreVisible:
+
+    def test_unreadable_config_warns(self, tmp_path, guppy_summary, caplog):
+        """A typo in --config_file silently produced a different report."""
+        from pycoQC.pycoQC import pycoQC
+        with caplog.at_level("WARNING"):
+            pycoQC(summary_file=str(guppy_summary),
+                   html_outfile=str(tmp_path / "r.html"),
+                   config_file=str(tmp_path / "no_such_config.json"),
+                   quiet=True)
+        assert "configuration file" in caplog.text.lower()
+
+    def test_unreadable_template_warns(self, tmp_path, guppy_summary, caplog):
+        from pycoQC.pycoQC import pycoQC
+        with caplog.at_level("WARNING"):
+            pycoQC(summary_file=str(guppy_summary),
+                   html_outfile=str(tmp_path / "r.html"),
+                   template_file=str(tmp_path / "no_such_template.j2"),
+                   quiet=True)
+        assert "template file" in caplog.text.lower()

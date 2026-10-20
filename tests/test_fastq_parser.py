@@ -21,7 +21,15 @@ class TestHelpers:
         ("/data/fastq_pass/reads.fastq.gz", "pass"),
         ("/data/fastq_fail/reads.fastq.gz", "fail"),
         ("/data/reads.fastq", "pass"),
-        ("/data/failed_run/reads.fastq", "fail"),
+        ("/data/fail/reads.fastq", "fail"),
+        ("/data/run_fail_01/reads.fastq", "fail"),
+        # The basecaller writes the word "fail" on its own, between
+        # separators. A directory that merely starts with those letters is
+        # not a statement about the reads, and treating it as one marked
+        # entire good runs as failing.
+        ("/mnt/failsafe_backup/fastq_pass/reads.fastq.gz", "pass"),
+        ("/mnt/failover/project/fastq_pass/reads.fastq.gz", "pass"),
+        ("/data/failed_run/reads.fastq", "pass"),
     ])
     def test_pass_fail_flag_from_path(self, path, expected):
         assert FastqParser.pass_fail_flag(path) == expected

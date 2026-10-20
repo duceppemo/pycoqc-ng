@@ -194,8 +194,16 @@ class pycoQC_report ():
                 n_plots += 1
 
             except AttributeError as E:
-                self.logger.info("\t\t{} is not a valid plotting method".format(method_name))
-                self.logger.info("\t\t{}".format(E))
+                # Only a genuinely absent method is routine here. An
+                # AttributeError raised inside a plot that does exist is a
+                # bug, and reporting it as an unknown plot name hid it.
+                if hasattr(self.plotter, method_name):
+                    self.logger.warning(
+                        "WARNING: {} failed with {}: {}".format(
+                            method_name, type(E).__name__, E))
+                else:
+                    self.logger.info(
+                        "\t\t{} is not a valid plotting method".format(method_name))
 
             except pycoQCError as E:
                 # A plot whose data is unavailable is skipped, as in the HTML
@@ -311,8 +319,16 @@ class pycoQC_report ():
                     titles.append(plot_title)
 
             except AttributeError as E:
-                self.logger.info("\t\t{} is not a valid plotting method".format(method_name))
-                self.logger.info("\t\t{}".format(E))
+                # Only a genuinely absent method is routine here. An
+                # AttributeError raised inside a plot that does exist is a
+                # bug, and reporting it as an unknown plot name hid it.
+                if hasattr(self.plotter, method_name):
+                    self.logger.warning(
+                        "WARNING: {} failed with {}: {}".format(
+                            method_name, type(E).__name__, E))
+                else:
+                    self.logger.info(
+                        "\t\t{} is not a valid plotting method".format(method_name))
 
             except pycoQCError as E:
                 self.logger.info("\t\t{}".format(E))
@@ -393,8 +409,14 @@ class pycoQC_report ():
             try:
                 with open(config_file, 'r') as cf:
                     return json.load(cf)
-            except (FileNotFoundError, IOError, json.JSONDecodeError):
-                self.logger.debug("\t\tConfiguration file not found, non-readable or invalid")
+            except (FileNotFoundError, IOError, json.JSONDecodeError) as E:
+                # Falling back silently meant a typo in --config_file
+                # produced a different report with no sign anything was
+                # wrong. The user named this file, so say it was not used.
+                self.logger.warning(
+                    "WARNING: could not read the configuration file {} ({}). "
+                    "Falling back to the default configuration.".format(
+                        config_file, E))
 
         # Last use the default hardcoded config_dict
         self.logger.debug("\tRead default configuration file")
@@ -411,8 +433,11 @@ class pycoQC_report ():
                     template = jinja2.Template(fp.read())
                     return template
             except (FileNotFoundError, IOError, jinja2.exceptions.TemplateNotFound,
-                    jinja2.exceptions.TemplateSyntaxError):
-                self.logger.debug("\t\tFile not found, non-readable or invalid")
+                    jinja2.exceptions.TemplateSyntaxError) as E:
+                self.logger.warning(
+                    "WARNING: could not read the template file {} ({}). "
+                    "Falling back to the default template.".format(
+                        template_file, E))
 
         # Last use the default harcoded config_dict
         self.logger.debug("\tRead default jinja template")

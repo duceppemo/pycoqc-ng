@@ -12,6 +12,7 @@ import pysam
 # Local imports
 from pycoQC.common import (
     mean_qscore,
+    path_has_token,
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
@@ -251,8 +252,9 @@ class Bam_to_seq_summary():
                 file_name = bam_dict.get('fn') or os.path.basename(bam_file)
                 location = file_name if bam_dict.get('fn') else bam_file
 
-                # Flag
-                if 'fail' in location:
+                # Flag, matched on whole words so a path such as
+                # /data/failover/bam_pass is not read as failing.
+                if path_has_token(location, 'fail'):
                     flag = 'FALSE'
                 else:
                     flag = 'TRUE'

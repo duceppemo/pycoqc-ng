@@ -23,6 +23,7 @@ from tqdm import tqdm
 # Local imports
 from pycoQC.common import (
     dict_to_str,
+    path_has_token,
     mean_qscore,
     parse_timestamp,
     pycoQCError,
@@ -59,8 +60,12 @@ class FastqParser(object):
 
     @staticmethod
     def pass_fail_flag(fastq_fn):
-        """Basecallers write passing and failing reads to separate paths"""
-        return 'fail' if 'fail' in fastq_fn else 'pass'
+        """Basecallers write passing and failing reads to separate paths
+
+        Matched on whole words, so a run kept under a directory such as
+        failsafe_backup is not read as a directory of failing reads.
+        """
+        return 'fail' if path_has_token(fastq_fn, 'fail') else 'pass'
 
     @staticmethod
     def read_entry(entry, flag):
@@ -213,9 +218,13 @@ class Fastq_to_seq_summary():
                  basecall_id: int = 0,
                  verbose_level: int = 0,
                  include_path: bool = False,
+                 # Matches the --fields default of the command line. The two
+                 # disagreed, so calling this class directly silently dropped
+                 # the pass or fail column that the command produced.
                  fields: list = ("read_id", "run_id", "channel", "start_time", "gc_percent",
                                  "sequence_length_template", "mean_qscore_template",
-                                 "calibration_strand_genome_template", "barcode_arrangement")):
+                                 "calibration_strand_genome_template", "barcode_arrangement",
+                                 "passes_filtering")):
         """
         * fastq_dir
             Directory containing fastqfiles. Can contain multiple subdirectories
