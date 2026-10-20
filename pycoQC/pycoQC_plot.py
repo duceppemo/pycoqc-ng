@@ -21,6 +21,10 @@ from pycoQC import __version__ as package_version
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # Set seed for deterministic random sampling
+# Above this many barcodes the read counts are drawn as bars rather than
+# a pie, which stops being legible well before a 96 barcode kit.
+PIE_MAX_BARCODES = 20
+
 SEED = 42
 np.random.RandomState(seed=SEED)
 
@@ -498,7 +502,7 @@ class pycoQC_plot():
 
     def basecall_summary_per_barcode(self,
                                      width: int = None,
-                                     height: int = 500,
+                                     height: int = None,
                                      plot_title: str = "Basecall summary per barcode"):
         """
         Plot an interactive basecall summary table
@@ -507,7 +511,8 @@ class pycoQC_plot():
         * width
             With of the plotting area in pixel
         * height
-            Height of the plotting area in pixel
+            Height of the plotting area in pixel. Grows with the number of
+            barcodes unless set.
         * plot_title
             Title to display on top of the plot
         """
@@ -541,6 +546,11 @@ class pycoQC_plot():
         lab1, dd1 = self.__summary_barcode_data("all")
         lab2, dd2 = self.__summary_barcode_data("pass")
         lab3, dd3 = self.__summary_barcode_data("fail")
+
+        # One row per barcode, so a 96 barcode run needs a taller table than
+        # a 12 barcode one rather than being cut off at the same place.
+        if height is None:
+            height = max(500, 290 + 30 * len(dd1["x"][0]))
 
         # Plot initial data
         data = [go.Table(
@@ -1753,7 +1763,7 @@ class pycoQC_plot():
             self,
             colors: list = ("#f8bc9c", "#f6e9a1", "#f5f8f2", "#92d9f5", "#4f97ba"),
             width: int = None,
-            height: int = 500,
+            height: int = None,
             plot_title: str = "Percentage of reads per barcode"):
         """
         Plot a mean quality over time
@@ -1762,7 +1772,8 @@ class pycoQC_plot():
         * width
             With of the plotting area in pixel
         * height
-            height of the plotting area in pixel
+            height of the plotting area in pixel. Grows with the number of
+            barcodes unless set.
         * plot_title
             Title to display on top of the plot
         """
@@ -1776,59 +1787,74 @@ class pycoQC_plot():
         lab2, dd2 = self.__barcode_counts_data(df_level="pass")
         lab3, dd3 = self.__barcode_counts_data(df_level="fail")
 
-        data = [
-            go.Table(
+        n_barcodes = len(dd1["labels"][0])
+
+        # A 96 barcode kit needs more room than a 12 barcode one: at a fixed
+        # height the legend and the table were simply cut off partway down.
+        if height is None:
+            height = max(500, 290 + 30 * n_barcodes)
+
+        # A pie divided 96 ways is a ring of slivers under a thicket of
+        # leader lines, and its legend is longer than the plot is tall. Past
+        # a couple of dozen barcodes a bar for each one is readable, and
+        # stays readable for the whole 96 of the largest kit.
+        as_pie = n_barcodes <= PIE_MAX_BARCODES
+
+        # One table and one pie per read set, with only the chosen pair
+        # visible. The buttons used to restyle a single pair in place, and
+        # because each carried both args and args2 plotly treated it as a
+        # toggle: the first click undid the previous button rather than
+        # applying the one just pressed, so every switch took two clicks.
+        # They also only ever restyled the table, leaving the pie showing
+        # the read set that had been selected before.
+        levels = [(lab1, dd1), (lab2, dd2), (lab3, dd3)]
+
+        data = []
+        for i, (_, dd) in enumerate(levels):
+            data.append(go.Table(
                 header={
                     "values": ["Barcode", "Count"],
                     "align": "center", "fill": {"color": "grey"},
                     "font": {"size": 14, "color": "white"},
                     "height": 40},
                 cells={
-                    "values": [dd1['labels'][0], dd1['values'][0]],
+                    "values": [dd['labels'][0], dd['values'][0]],
                     "format": ["", ","],
                     "align": "center",
                     "fill": {"color": "whitesmoke"},
                     "font": {"size": 12}, "height": 30},
                 columnwidth=[3, 2],
-                domain={"x": [0.5, 1.0], "y": [0, 1.0]}
-            ),
-            go.Pie(
-                labels=dd1["labels"][0],
-                values=dd1["values"][0],
-                sort=False,
-                domain={"x": [0, 0.4], "y": [0, 1.0]}
-            )
-        ]
+                domain={"x": [0.5, 1.0], "y": [0, 1.0]},
+                visible=(i == 0)))
+            if as_pie:
+                data.append(go.Pie(
+                    labels=dd["labels"][0],
+                    values=dd["values"][0],
+                    sort=False,
+                    domain={"x": [0, 0.4], "y": [0, 1.0]},
+                    visible=(i == 0)))
+            else:
+                data.append(go.Bar(
+                    y=list(dd["labels"][0]),
+                    x=list(dd["values"][0]),
+                    orientation="h",
+                    marker={"color": colors[0]},
+                    hovertemplate="%{y}: %{x:,} reads<extra></extra>",
+                    visible=(i == 0)))
 
+        buttons = []
+        for i, (label, _) in enumerate(levels):
+            visible = [False] * len(data)
+            visible[2 * i] = visible[2 * i + 1] = True
+            buttons.append(dict(label=label, method="restyle",
+                                args=[{"visible": visible}]))
+
+        # Laid out in a row under the pie. Down the left hand side they sat
+        # on top of the legend, which grows with the number of barcodes.
         updatemenus = [
-            dict(type="buttons", active=0, x=-0.075, y=0, xanchor='left', yanchor='bottom',
-                 buttons=[dict(label=lab1, method='restyle',
-                               args=[dict(cells={
-                                   "values": [dd1['labels'][0], dd1['values'][0]],
-                                   "format": ["", ","],
-                                   "align": "center",
-                                   "fill": {"color": "whitesmoke"},
-                                   "font": {"size": 12}, "height": 30})],
-                               args2=[dd1]),
-                          dict(label=lab2, method='restyle',
-                               args=[dict(cells={
-                                   "values": [dd2['labels'][0], dd2['values'][0]],
-                                   "format": ["", ","],
-                                   "align": "center",
-                                   "fill": {"color": "whitesmoke"},
-                                   "font": {"size": 12}, "height": 30})],
-                               args2=[dd2]),
-                          dict(label=lab3, method='restyle',
-                               args=[dict(cells={
-                                   "values": [dd3['labels'][0], dd3['values'][0]],
-                                   "format": ["", ","],
-                                   "align": "center",
-                                   "fill": {"color": "whitesmoke"},
-                                   "font": {"size": 12}, "height": 30})],
-                               args2=[dd3])
-                          ]
-                 )
-        ]
+            dict(type="buttons", active=0, direction="right",
+                 x=0.2, y=-0.02, xanchor="center", yanchor="top",
+                 pad={"t": 4}, buttons=buttons)]
 
         # tweak plot layout
         layout = go.Layout(
@@ -1837,9 +1863,22 @@ class pycoQC_plot():
             updatemenus=updatemenus,
             width=width,
             height=height,
+            # Room under the plot for the row of buttons.
+            margin={"b": 70},
             title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
 
-        return go.Figure(data=data, layout=layout).set_subplots(rows=1, cols=2, column_widths=[0.4, 0.6])
+        if not as_pie:
+            # Bars carry their own labels, so the legend would only repeat
+            # them down the side.
+            layout.update(
+                showlegend=False,
+                bargap=0.2,
+                xaxis={"domain": [0.06, 0.42], "title": "Reads",
+                       "zeroline": False, "showline": True},
+                yaxis={"domain": [0, 1], "autorange": "reversed",
+                       "tickfont": {"size": 10}})
+
+        return go.Figure(data=data, layout=layout)
 
     def __barcode_counts_data(self, df_level):
         """Private function preparing data for barcode_counts"""

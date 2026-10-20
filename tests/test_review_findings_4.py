@@ -381,3 +381,164 @@ class TestOneMeanCoverage:
         table = plotter.alignment_summary()["data"][0]["cells"]["values"][3][0]
         plot = plotter.alignment_coverage()["data"][1]["y"][0]
         assert table == pytest.approx(plot, rel=0.01)
+
+
+class TestBarcodeFigureControls:
+    """The three read-set buttons sat over the pie and the legend, only
+    ever restyled the table, and because each carried both args and args2
+    plotly treated them as toggles, so a switch took two clicks."""
+
+    @pytest.fixture
+    def plotter(self, tmp_path):
+        path = write_summary(tmp_path / "s.txt", n=4000)
+        return pycoQC_plot(pycoQC_parse(summary_file=str(path), quiet=True),
+                           quiet=True)
+
+    def test_one_click_switches_read_set(self, plotter):
+        menu = plotter.barcode_counts()["layout"]["updatemenus"][0]
+        for button in menu["buttons"]:
+            assert getattr(button, "args2", None) is None
+
+    def test_both_the_table_and_the_pie_follow_the_button(self, plotter):
+        fig = plotter.barcode_counts()
+        kinds = [trace.type for trace in fig["data"]]
+        assert kinds == ["table", "pie"] * 3
+        for i, button in enumerate(fig["layout"]["updatemenus"][0]["buttons"]):
+            visible = button["args"][0]["visible"]
+            assert [n for n, v in enumerate(visible) if v] == [2 * i, 2 * i + 1]
+
+    def test_each_read_set_shows_its_own_counts(self, plotter):
+        fig = plotter.barcode_counts()
+        totals = [sum(fig["data"][2 * i]["cells"]["values"][1])
+                  for i in range(3)]
+        assert totals == [len(plotter.all_df), len(plotter.pass_df),
+                          len(plotter.fail_df)]
+
+    def test_the_buttons_sit_below_the_pie(self, plotter):
+        menu = plotter.barcode_counts()["layout"]["updatemenus"][0]
+        assert menu["direction"] == "right"
+        assert menu["y"] <= 0          # under the plotting area
+        assert 0 <= menu["x"] <= 0.4   # across the pie, not over the legend
+
+    def test_the_figure_grows_with_the_number_of_barcodes(self, tmp_path):
+        """At a fixed height a 96 barcode run had its legend and its table
+        cut off partway down."""
+        path = tmp_path / "many.txt"
+        n = 4800
+        pd.DataFrame({
+            "read_id": [f"r{i:06d}" for i in range(n)],
+            "run_id": "run1",
+            "channel": [i % 512 + 1 for i in range(n)],
+            "start_time": [float(i) for i in range(n)],
+            "sequence_length_template": 1000,
+            "mean_qscore_template": 10.0,
+            "barcode_arrangement": [f"barcode{i % 96 + 1:02d}"
+                                    for i in range(n)],
+        }).to_csv(path, sep="\t", index=False)
+
+        plotter = pycoQC_plot(
+            pycoQC_parse(summary_file=str(path), min_barcode_percent=0,
+                         quiet=True), quiet=True)
+
+        for fig in (plotter.barcode_counts(),
+                    plotter.basecall_summary_per_barcode()):
+            # Room for a header and 96 rows.
+            assert fig["layout"]["height"] >= 96 * 30
+
+    def test_an_explicit_height_is_respected(self, plotter):
+        assert plotter.barcode_counts(height=640)["layout"]["height"] == 640
+
+
+class TestTheLargestBarcodeKit:
+    """96 is as many as a standard Oxford Nanopore kit goes (SQK-NBD114-96,
+    SQK-RBK114-96, EXP-PBC096), so the report has to hold that many."""
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def plotter(cls, tmp_path_factory):
+        path = tmp_path_factory.mktemp("bc96") / "s.txt"
+        n = 9600
+        pd.DataFrame({
+            "read_id": [f"r{i:06d}" for i in range(n)],
+            "run_id": "run1",
+            "channel": [i % 512 + 1 for i in range(n)],
+            "start_time": [float(i) for i in range(n)],
+            "sequence_length_template": [500 + (i % 4000) for i in range(n)],
+            "mean_qscore_template": [5.0 + (i % 10) for i in range(n)],
+            "barcode_arrangement": [f"barcode{i % 96 + 1:02d}"
+                                    for i in range(n)],
+        }).to_csv(path, sep="\t", index=False)
+        parser = pycoQC_parse(summary_file=str(path), min_barcode_percent=0,
+                              quiet=True)
+        return pycoQC_plot(parser, quiet=True)
+
+    def test_every_barcode_reaches_the_table(self, plotter):
+        cells = plotter.basecall_summary_per_barcode()["data"][0]["cells"]["values"]
+        assert len(cells[0]) == 96
+
+    def test_the_table_is_tall_enough_to_show_them(self, plotter):
+        fig = plotter.basecall_summary_per_barcode()
+        # Header plus 96 rows of 30 pixels.
+        assert fig["layout"]["height"] >= 40 + 96 * 30
+
+    def test_counts_are_drawn_as_bars_not_a_pie(self, plotter):
+        """A pie divided 96 ways is a ring of slivers under a thicket of
+        leader lines, with a legend longer than the plot is tall."""
+        kinds = [trace.type for trace in plotter.barcode_counts()["data"]]
+        assert kinds == ["table", "bar"] * 3
+
+    def test_every_barcode_gets_a_bar(self, plotter):
+        bar = plotter.barcode_counts()["data"][1]
+        assert len(bar["y"]) == 96
+        assert sum(bar["x"]) == len(plotter.all_df)
+
+    def test_a_small_run_keeps_its_pie(self, tmp_path):
+        path = write_summary(tmp_path / "s.txt", n=2000)   # four barcodes
+        plotter = pycoQC_plot(pycoQC_parse(summary_file=str(path), quiet=True),
+                              quiet=True)
+        kinds = [trace.type for trace in plotter.barcode_counts()["data"]]
+        assert kinds == ["table", "pie"] * 3
+
+    def test_the_boxplots_cover_every_barcode(self, plotter):
+        for method in ("length_boxplot_per_barcode", "gc_boxplot_per_barcode"):
+            try:
+                fig = getattr(plotter, method)()
+            except pycoQCError:
+                continue          # %GC is not in this summary
+            # One box trace, grouped by the barcode on the x axis.
+            assert len(set(fig["data"][0]["x"])) == 96
+
+
+class TestPdfPagesFitTheirPlot:
+
+    def test_a_tall_plot_gets_a_tall_page(self, tmp_path):
+        """Every page was rendered at one size, so a 96 barcode table was
+        cut off after its twelfth row."""
+        pytest.importorskip("pypdf")
+        pytest.importorskip("kaleido")
+        from pycoQC.pycoQC_report import pycoQC_report
+        import pypdf
+
+        path = tmp_path / "s.txt"
+        n = 4800
+        pd.DataFrame({
+            "read_id": [f"r{i:06d}" for i in range(n)],
+            "run_id": "run1",
+            "channel": [i % 512 + 1 for i in range(n)],
+            "start_time": [float(i) for i in range(n)],
+            "sequence_length_template": [500 + (i % 4000) for i in range(n)],
+            "mean_qscore_template": [5.0 + (i % 10) for i in range(n)],
+            "barcode_arrangement": [f"barcode{i % 96 + 1:02d}"
+                                    for i in range(n)],
+        }).to_csv(path, sep="\t", index=False)
+
+        parser = pycoQC_parse(summary_file=str(path), min_barcode_percent=0,
+                              quiet=True)
+        report = pycoQC_report(parser, pycoQC_plot(parser, quiet=True),
+                               quiet=True)
+        out = tmp_path / "r.pdf"
+        report.pdf_report(str(out), height=600)
+
+        heights = [float(page.mediabox.height)
+                   for page in pypdf.PdfReader(str(out)).pages]
+        assert max(heights) > 2 * min(heights)

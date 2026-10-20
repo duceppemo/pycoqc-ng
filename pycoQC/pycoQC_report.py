@@ -193,10 +193,17 @@ class pycoQC_report ():
                 if not fig["data"]:
                     continue
 
+                # A plot that asked for more room than a page gets it: the
+                # per barcode table and pie size themselves to the number of
+                # barcodes, and forcing them back to the page height cut a
+                # 96 barcode run off after the twelfth row.
+                page_height = max(height, int(fig["layout"]["height"] or 0))
+
                 fig.update_layout(title=dict(text=plot_title),
-                                  width=width, height=height)
+                                  width=width, height=page_height)
                 try:
-                    page = fig.to_image(format="pdf", width=width, height=height)
+                    page = fig.to_image(format="pdf", width=width,
+                                        height=page_height)
                 except Exception as E:
                     raise pycoQCError(
                         "Could not render {} to PDF. Writing a PDF report "
