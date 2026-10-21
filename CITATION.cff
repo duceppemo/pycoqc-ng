@@ -18,8 +18,8 @@ identifiers:
     value: 10.5281/zenodo.23484147
     description: "Concept DOI: resolves to the latest version"
   - type: doi
-    value: 10.5281/zenodo.23484148
-    description: "Version DOI for 3.0.0"
+    value: 10.5281/zenodo.23520967
+    description: "Version DOI for 3.1.0"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/duceppemo/pycoqc-ng"
 url: "https://github.com/duceppemo/pycoqc-ng"
