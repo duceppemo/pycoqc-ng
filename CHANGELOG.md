@@ -72,6 +72,12 @@ output rather than against the test fixtures.
 * Pass and fail are read only from the part of the path below the
   directory given to the converter, so a run kept under a directory named
   for a failed experiment is no longer a run of failing reads.
+* The FASTQ and FAST5 converters sent their workers SIGTERM on the error
+  path and never waited for them, so a child that outlived the signal was
+  left for Python to join at interpreter exit: the conversion raised the
+  error it meant to, and the process then hung on the way out with nothing
+  to say why. Cleanup now waits, and SIGKILLs whatever ignored SIGTERM, on
+  every exit path rather than for three hand-listed exception types.
 
 **Packaging**
 

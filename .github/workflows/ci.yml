@@ -14,6 +14,11 @@ jobs:
   test:
     name: Test (py${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # The suite takes about three minutes. Without a limit, a worker process
+    # left running holds the job open until the six hour default, because the
+    # step waits on the orphan rather than on pytest, which has already
+    # reported success.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +56,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +79,7 @@ jobs:
   build:
     name: Build distributions
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

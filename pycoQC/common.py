@@ -284,6 +284,37 @@ def recursive_file_gen(dir, ext):
                 yield path.join(root, fn)
 
 
+def stop_processes(ps_list, timeout=5):
+    """Make sure none of these processes outlives the call that started them.
+
+    `Process.terminate` only sends SIGTERM; it does not wait, and it does not
+    reap. A child that is blocked writing to a full queue, or one that has
+    installed a SIGTERM handler of its own, can still be running when the
+    parent moves on. Python then joins it from an atexit handler, so the
+    parent appears to finish its work and hangs on the way out, with no
+    traceback and nothing to say which child is holding it.
+
+    coverage installs exactly such a handler when run with `sigterm = true`,
+    which is how this surfaced: the test suite passed and the interpreter
+    never exited.
+
+    So terminate, wait a short while, and SIGKILL whatever is left.
+    """
+    for proc in ps_list:
+        if proc.is_alive():
+            proc.terminate()
+
+    for proc in ps_list:
+        proc.join(timeout)
+
+    for proc in ps_list:
+        if proc.is_alive():
+            # Nothing is left to flush at this point, and a child that
+            # ignored SIGTERM will not honour a second one either.
+            proc.kill()
+            proc.join(timeout)
+
+
 def get_logger(name=None, verbose=False, quiet=False):
     """Set logger to appropriate log level"""
 

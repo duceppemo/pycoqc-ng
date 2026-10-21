@@ -29,6 +29,7 @@ from pycoQC.common import (
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
+    stop_processes,
     elapsed_seconds_per_run)
 
 
@@ -308,12 +309,15 @@ class Fastq_to_seq_summary():
             for proc in ps_list:
                 proc.join()
 
-        # Kill processes if any error
-        except(BrokenPipeError, KeyboardInterrupt, pycoQCError) as E:
-            for proc in ps_list:
-                proc.terminate()
+        except BaseException:
             logger.info("\nAn error occurred. All processes were killed\n")
-            raise E
+            raise
+
+        finally:
+            # Every exit from here, including a clean one, leaves nothing
+            # running. Listing the exceptions to clean up after meant any
+            # other kind left the whole pool alive.
+            stop_processes(ps_list)
 
     def _list_fastq(self, in_q, error_q):
         """
