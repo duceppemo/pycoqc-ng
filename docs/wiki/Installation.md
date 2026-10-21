@@ -52,7 +52,7 @@ See [Development](Development) for more.
 pycoQC --version
 ```
 
-should print `pycoqc-ng v3.0.0`. The package installs six commands:
+should print `pycoqc-ng v3.1.0`. The package installs six commands:
 
 | Command | Purpose |
 |---|---|

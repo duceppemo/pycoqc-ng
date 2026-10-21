@@ -1,6 +1,10 @@
 # Changelog
 
-### Unreleased
+### 2026-10-20 — pycoqc-ng 3.1.0
+
+A report for runs that have not been basecalled, and a long list of
+fixes found by reading the code against real Albacore, Guppy and Dorado
+output rather than against the test fixtures.
 
 **Added**
 
@@ -68,6 +72,12 @@
 * Pass and fail are read only from the part of the path below the
   directory given to the converter, so a run kept under a directory named
   for a failed experiment is no longer a run of failing reads.
+
+**Packaging**
+
+* The vendored stylesheet directory was not declared as a package, which
+  setuptools warned about on every build. The files were shipped anyway,
+  by the package-data globs, so no release was missing them.
 
 ### 2026-10-19 — pycoqc-ng 3.0.0
 

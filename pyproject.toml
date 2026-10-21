@@ -67,7 +67,7 @@ Barcode_split = "pycoQC.__main__:main_Barcode_split"
 # templates/ holds data rather than modules, but setuptools treats any
 # directory as importable and warns unless it is listed here too. The files
 # themselves are shipped by package-data below.
-packages = ["pycoQC", "pycoQC.templates"]
+packages = ["pycoQC", "pycoQC.templates", "pycoQC.templates.vendor"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pycoQC.__version__"}
