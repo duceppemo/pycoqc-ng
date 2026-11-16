@@ -199,6 +199,10 @@ class Pod5_to_seq_summary():
                      "read_number": read_number,
                      "barcode_arrangement": barcode,
                      "passes_filtering": flag,
+                     # Why the read ended, and which of the channel's pores
+                     # it came from.
+                     "end_reason": read.end_reason.name,
+                     "mux": read.pore.well,
                      # Run level fields, carried so the report can describe
                      # the run rather than only the reads.
                      "run_start_time": run_start,

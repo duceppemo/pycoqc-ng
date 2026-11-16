@@ -16,6 +16,7 @@ import datetime
 import os
 
 # Third party imports
+import numpy as np
 import plotly.graph_objs as go
 import plotly.offline as py
 import jinja2
@@ -79,7 +80,14 @@ def _current_user():
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def _json_safe(obj):
-    """Replace the non finite floats JSON has no literal for with None."""
+    """Plain Python values JSON can hold, with None for non finite floats.
+
+    numpy scalars are converted first. np.float64 passes for a float, but
+    np.float32 and the integer types do not, and the median of a float32
+    column made json.dump fail on the whole report.
+    """
+    if isinstance(obj, np.generic):
+        obj = obj.item()
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else None
     if isinstance(obj, dict):

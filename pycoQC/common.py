@@ -112,6 +112,38 @@ def path_below(path, root):
         return str(Path(path).name)
 
 
+def run_health_fields(tags):
+    """Duration, template duration, end reason and mux from Dorado's tags.
+
+    Dorado writes the same tags into a BAM and, with -T, into a FASTQ header:
+    du, the read's duration in seconds; ns, its number of signal samples; ts,
+    the samples trimmed from its start, which is the adapter; er, the reason
+    it ended; and mx, the mux it was read on. The strand's own time is
+    du * (ns - ts) / ns, which is what a translocation speed should divide by.
+    Missing tags give blanks.
+
+    * tags
+        Mapping from tag name to value, as strings or numbers.
+    """
+    def number(key):
+        try:
+            return float(tags[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    du, ns, ts = number("du"), number("ns"), number("ts")
+    template = ""
+    if du is not None and ns and ts is not None and 0 <= ts < ns:
+        template = round(du * (ns - ts) / ns, 5)
+    mux = number("mx")
+    return {
+        "duration": round(du, 5) if du is not None else "",
+        "template_duration": template,
+        "end_reason": tags.get("er", ""),
+        "mux": int(mux) if mux is not None else "",
+    }
+
+
 def parse_timestamp(value):
     """Parse a basecaller timestamp
 

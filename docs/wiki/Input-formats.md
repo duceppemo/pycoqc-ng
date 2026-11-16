@@ -130,6 +130,8 @@ quality score in it.
 | Reads over experiment time | cumulative and per interval read counts |
 | Time in pore over experiment time | whether reads got shorter as the run went on |
 | Activity per channel | which pores were working, and when |
+| Read end reason over experiment time | how reads ended: normally, unblocked, at a mux scan |
+| Active channels over experiment time | how many channels were still producing, in total and per mux |
 | Reads per barcode | if the file names carry barcodes |
 
 Pass and fail come from the `passes_filtering` column, which the converter reads from
@@ -146,6 +148,7 @@ What the summary does carry, straight from the file:
 | `duration` | sample count divided by the sample rate, in seconds |
 | `sample_id`, `flowcell_id` | the run info |
 | `read_number` | per-channel read counter |
+| `end_reason`, `mux` | why the read ended, and the well of the pore it came from |
 | `run_start_time`, `flow_cell_product_code`, `sequencing_kit`, `device_id`, `software` | the run info, used for the report's run panel |
 | `barcode_arrangement`, `passes_filtering` | read from the file name, see below |
 

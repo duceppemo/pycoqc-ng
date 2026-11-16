@@ -23,7 +23,8 @@ then show a report of mostly skipped plots. If you work with POD5 or raw FAST5, 
 leave the default in place for those runs or keep a second configuration for them; the
 built-in one is `pycoQC_config_signal.json` inside the installed package, listing
 `run_summary`, `signal_summary`, `read_duration_1D`, `output_over_time`,
-`read_duration_over_time`, `channels_activity` and `barcode_counts`.
+`end_reason_over_time`, `read_duration_over_time`, `channels_activity`,
+`active_channels_over_time` and `barcode_counts`.
 
 ## Structure
 

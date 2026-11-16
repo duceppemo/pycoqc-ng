@@ -25,6 +25,7 @@ from pycoQC.common import (
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
+    run_health_fields,
     stop_processes,
     elapsed_seconds_per_run)
 
@@ -199,6 +200,8 @@ class FastqParser(object):
         entry_dict[read_id]['passes_filtering'] = flag
         entry_dict[read_id]['flow_cell_id'] = flowcell
         entry_dict[read_id]['sample_id'] = sample_id
+        # Present when Dorado wrote its tags into the header (-T).
+        entry_dict[read_id].update(run_health_fields(read_dict))
 
         return entry_dict
 
@@ -230,7 +233,8 @@ class Fastq_to_seq_summary():
                  fields: list = ("read_id", "run_id", "channel", "start_time", "gc_percent",
                                  "sequence_length_template", "mean_qscore_template",
                                  "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering")):
+                                 "passes_filtering", "duration", "template_duration",
+                                 "end_reason", "mux")):
         """
         * fastq_dir
             Directory containing fastqfiles. Can contain multiple subdirectories

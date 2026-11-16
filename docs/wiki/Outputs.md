@@ -34,6 +34,7 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 |---|---|
 | `read_len_1D` | Basecalled read length |
 | `read_qual_1D` | Mean PHRED quality per read |
+| `read_speed_1D` | Translocation speed, bases per second |
 | `align_len_1D` | Aligned read length |
 | `identity_freq_1D` | Alignment identity |
 | `length_boxplot_per_barcode` | Read length per barcode |
@@ -61,13 +62,16 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 | Plot | Shows |
 |---|---|
 | `output_over_time` | Cumulative reads and bases |
+| `end_reason_over_time` | Share of reads by end reason: finished, ejected by an unblock, cut by a mux scan, rejected by adaptive sampling |
 | `read_len_over_time` | Median length and quartiles over time |
 | `read_qual_over_time` | Median quality and quartiles over time |
+| `read_speed_over_time` | Translocation speed over time |
 | `read_gc_over_time` | %GC over time |
 | `align_len_over_time` | Aligned length over time |
 | `identity_freq_over_time` | Identity over time |
 | `read_duration_over_time` | Time in pore over experiment time (raw signal runs) |
 | `channels_activity` | Per-channel activity heatmap |
+| `active_channels_over_time` | Channels producing reads per 1.5 hour interval, in total and per mux, against the flow cell's channel count |
 
 ![Output over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/output-over-time.png)
 
@@ -101,6 +105,31 @@ a block of channels never firing, is worth looking into.*
 
 A falling `read_qual_over_time`, or `channels_activity` thinning out partway through,
 usually points at pore exhaustion rather than anything wrong with the library.
+
+### Reading the run health plots
+
+These need columns that newer basecallers and the converters write: `end_reason`,
+`mux`, and a duration for the speed. A plot whose column is missing is skipped.
+
+* **End reason.** `signal_positive` is a strand that finished normally.
+  `unblock_mux_change` is MinKNOW ejecting a strand that blocked its pore; a few
+  percent is usual, and a share that climbs through the run means pores are clogging.
+  `data_service_unblock_mux_change` is adaptive sampling rejecting a read, so on an
+  adaptive sampling run it is the rejection rate. `mux_change` is a read cut short by a
+  mux scan.
+* **Translocation speed.** Bases per second through the pore, about 400 for current
+  DNA kits. It is measured on the strand alone, from `template_duration` or from Dorado's
+  `ns` and `ts` tags, because the whole read's duration also counts the adapter and
+  makes short reads look slow. Without either, the whole duration is used and the axis
+  says so. A slow decline over a run is normal; a sharp drop, or a run well below the
+  kit's speed, points at the motor protein, temperature or the flow cell.
+* **Active channels.** How many channels produced a read in each interval, against
+  the flow cell's count. Its decline is how fast the pores are being used up, and a
+  step down marks something that happened to the whole flow cell at once. The
+  intervals default to an hour and a half, MinKNOW's mux scan cycle: shorter or
+  mismatched ones catch a different number of scans each and the line saw-tooths.
+  The per-mux lines show whether one of a channel's four pores wore out before the
+  others.
 
 All example figures come from a 48 hour lambda phage run on a MinION, 975,715 reads, the [EPI2ME Labs basic QC tutorial dataset](https://epi2me.nanoporetech.com/notebooks/Basic_QC_Tutorial.html).
 

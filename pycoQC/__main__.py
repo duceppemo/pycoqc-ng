@@ -216,7 +216,7 @@ def main_Fast5_to_seq_summary(args=None):
                                  "sequence_length_template", "mean_qscore_template",
                                  "calibration_strand_genome_template", "barcode_arrangement",
                                  "passes_filtering", "sample_id", "device_id", "flow_cell_id",
-                                 "exp_start_time"],
+                                 "exp_start_time", "start_mux"],
                         help="List of field names corresponding to attributes to try to fetch from the fast5 "
                              "files(default: %(default)s)")
     parser.add_argument("--include_path", action='store_true', default=False,
@@ -270,7 +270,7 @@ def main_Fastq_to_seq_summary(args=None):
     parser.add_argument("--fields", type=str, nargs="+",
                         default=["read_id", "run_id", "channel", "start_time", "gc_percent", "sequence_length_template",
                                  "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering"],
+                                 "passes_filtering", "duration", "template_duration", "end_reason", "mux"],
                         help="List of field names corresponding to attributes to try to fetch from the "
                              "fastq headers(default: %(default)s)")
     parser.add_argument("--include_path", action='store_true', default=False,

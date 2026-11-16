@@ -75,7 +75,7 @@ class Fast5_to_seq_summary ():
                          "sequence_length_template", "mean_qscore_template",
                          "calibration_strand_genome_template", "barcode_arrangement",
                          "passes_filtering", "sample_id", "device_id",
-                         "flow_cell_id", "exp_start_time")):
+                         "flow_cell_id", "exp_start_time", "start_mux")):
         """
         * fast5_dir
             Directory containing fast5 files. Can contain multiple subdirectories

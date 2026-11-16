@@ -71,7 +71,7 @@ class pycoQC_plot():
         self.parser = parser
 
         # Extract values from parser object
-        self.all_df = parser.reads_df
+        self.all_df = self._with_speed(parser.reads_df)
         if self.has_alignment:
             self.ref_len_dict = parser.ref_len_dict
             self.alignments_df = parser.alignments_df
@@ -101,6 +101,33 @@ class pycoQC_plot():
         else:
             self.logger.info("\tFound {:,} pass reads".format(len(self.pass_df)))
         self.logger.info("\tFound {:,} fail reads".format(len(self.fail_df)))
+
+    def _with_speed(self, df):
+        """Add each read's translocation speed, in bases per second.
+
+        The time is the strand's own where the summary records it, as Guppy
+        and Dorado do in template_duration and the converters derive from
+        Dorado's ns and ts tags. The whole read's duration also counts the
+        adapter, which a short read spends a large share of its time on:
+        on a real Dorado run, reads under 500 bases came out at 298 bases a
+        second against 392 from the template time, while every length
+        agreed at 392 to 394 from the template time. The whole duration is
+        used only when nothing better is recorded.
+        """
+        self.speed_from_template = "template_duration" in df
+        if "read_len" not in df:
+            return df
+        if self.speed_from_template:
+            time = df["template_duration"]
+            if "duration" in df:
+                time = time.fillna(df["duration"])
+        elif "duration" in df:
+            time = df["duration"]
+        else:
+            return df
+        time = pd.to_numeric(time, errors="coerce").astype(np.float64)
+        speed = df["read_len"].astype(np.float64) / time.where(time > 0)
+        return df.assign(speed=speed.astype(np.float32))
 
     @staticmethod
     def _sample(df, sample):
@@ -185,6 +212,36 @@ class pycoQC_plot():
                 "No basecall information available. This summary holds raw "
                 "signal only: basecall the run to get read lengths and "
                 "quality scores.")
+
+    @property
+    def has_speed(self):
+        return "speed" in self.all_df and self.all_df["speed"].notna().any()
+
+    @property
+    def has_end_reason(self):
+        return "end_reason" in self.all_df
+
+    @property
+    def has_mux(self):
+        return "mux" in self.all_df
+
+    @property
+    def _speed_label(self):
+        return ("Bases per second" if self.speed_from_template
+                else "Bases per second (whole read, with adapter)")
+
+    @property
+    def _flow_cell_channels(self):
+        """How many channels the flow cell has, judged from the highest one
+        seen. A channel numbered past the platform's count, from a device or
+        a summary this does not know, widens it."""
+        if self.is_promethion:
+            n_channels = 3000
+        elif self.is_flongle:
+            n_channels = 126
+        else:
+            n_channels = 512  # MinION / GridION
+        return max(n_channels, int(self.all_df["channel"].max()))
 
     @property
     def has_gc_percent(self):
@@ -412,6 +469,10 @@ class pycoQC_plot():
         d["run"]["active_channels"] = self._active_channels(df)
         d["run"]["runid_number"] = self._runid_number(df)
         d["run"]["barcodes_number"] = self._barcodes_number(df)
+        if self.has_end_reason:
+            counts = df["end_reason"].fillna("unknown").value_counts()
+            d["run"]["end_reasons"] = OrderedDict(
+                (str(k), int(v)) for k, v in counts.items())
         # Everything under "basecall" describes a sequence, which a raw
         # signal run does not have yet. What it does have is how long each
         # read occupied its pore, which is reported in its place.
@@ -431,6 +492,9 @@ class pycoQC_plot():
             d["basecall"]["qual_score_hist"] = OrderedDict()
             d["basecall"]["qual_score_hist"]["x"] = x
             d["basecall"]["qual_score_hist"]["y"] = y
+            if self.has_speed:
+                d["basecall"]["median_speed"] = self._median_or_nan(df["speed"])
+                d["basecall"]["speed_percentiles"] = self._compute_percentiles(df["speed"])
         else:
             d["signal"] = OrderedDict()
             d["signal"]["reads_number"] = len(df)
@@ -2070,6 +2134,337 @@ class pycoQC_plot():
 
         return self._level_label(df_level), data_dict
 
+    #~~~~~~~RUN HEALTH METHODS AND HELPER~~~~~~~#
+    def read_speed_1D(self,
+                      color: str = "plum",
+                      nbins: int = 200,
+                      smooth_sigma: int = 2,
+                      width: int = None,
+                      height: int = 500,
+                      plot_title: str = "Translocation speed"):
+        """
+        Plot a distribution of how fast each strand passed through its pore,
+        in bases per second. A kit is designed for one speed, 400 bases per
+        second for most current DNA kits, and a run well below it points at
+        the motor protein, the temperature or the flow cell.
+        * color
+            Color of the area(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * nbins
+            Number of bins to devide the x-axis in
+        * smooth_sigma
+            standard deviation for Gaussian kernel
+        * width
+            With of the plotting area in pixel
+        * height
+            Height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        self._require_speed()
+        return self._1D_density_plot(
+            field_name="speed",
+            plot_title=plot_title,
+            x_lab=self._speed_label,
+            color=color,
+            x_scale="linear",
+            nbins=nbins,
+            smooth_sigma=smooth_sigma,
+            width=width,
+            height=height)
+
+    def read_speed_over_time(
+            self,
+            median_color: str = "rgb(153,102,204)",
+            quartile_color: str = "rgb(204,170,230)",
+            extreme_color: str = "rgba(204,170,230,0.5)",
+            smooth_sigma: int = 1,
+            time_bins: int = 500,
+            width: int = None,
+            height: int = 500,
+            plot_title: str = "Translocation speed over experiment time"):
+        """
+        Plot translocation speed over experiment time. A slow decline is
+        normal as the run ages; a sharp drop is worth investigating.
+        * median_color
+            Color of median line color(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * quartile_color
+            Color of inter quartile area and lines(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * extreme_color
+            Color of inter extreme area and lines(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * smooth_sigma
+            sigma parameter for the Gaussian filter line smoothing
+        * time_bins
+            Number of bins to divide the time values in(x-axis)
+        * width
+            With of the plotting area in pixel
+        * height
+            height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        self._require_speed()
+        return self._over_time_plot(
+            field_name="speed",
+            plot_title=plot_title,
+            y_lab=self._speed_label,
+            y_scale="linear",
+            median_color=median_color,
+            quartile_color=quartile_color,
+            extreme_color=extreme_color,
+            smooth_sigma=smooth_sigma,
+            time_bins=time_bins,
+            width=width,
+            height=height)
+
+    def _require_speed(self):
+        if not self.has_speed:
+            raise pycoQCError(
+                "No translocation speed available: it needs a read length "
+                "and a duration for each read")
+
+    # Colours for the end reasons MinKNOW records, so that one reason looks
+    # the same in every report. Anything else takes the next colour along.
+    END_REASON_COLORS = {
+        "signal_positive": "#4f97ba",
+        "signal_negative": "#92d9f5",
+        "unblock_mux_change": "#f44f39",
+        "data_service_unblock_mux_change": "#fc8161",
+        "mux_change": "#f6c344",
+        "api_request": "#9b6fc3",
+        "device_data_error": "#5a5a5a",
+        "analysis_config_change": "#b5b5b5",
+        "paused": "#d9d9d9",
+        "partial": "#c7a27c",
+        "unknown": "#828282"}
+    OTHER_COLORS = ("#7fbf7b", "#e7a1c4", "#a6761d", "#1b9e77", "#666666")
+
+    def end_reason_over_time(
+            self,
+            time_bins: int = 100,
+            width: int = None,
+            height: int = 550,
+            plot_title: str = "Read end reason over experiment time"):
+        """
+        Plot how reads ended, as the share of reads per time interval.
+        signal_positive is a strand that finished normally. unblock_mux_change
+        is MinKNOW ejecting a blocked strand, and a share that climbs through
+        the run means pores are clogging. data_service_unblock_mux_change is
+        adaptive sampling rejecting a read, and mux_change a read cut short by
+        a mux scan.
+        * time_bins
+            Number of bins to divide the time values in(x-axis)
+        * width
+            With of the plotting area in pixel
+        * height
+            height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        if not self.has_end_reason:
+            raise pycoQCError("No end_reason information available")
+        if "start_time" not in self.all_df:
+            raise pycoQCError("No start_time information available")
+        self.logger.info("\t\tComputing plot")
+
+        # The same reasons, in the same order and colours, for every read
+        # set, most common first.
+        reasons = list(self.all_df["end_reason"].fillna("unknown").value_counts().index)
+        others = iter(self.OTHER_COLORS * len(reasons))
+        colors = [self.END_REASON_COLORS.get(r) or next(others) for r in reasons]
+
+        prepared = [self._end_reason_data(level, reasons, time_bins) for level in LEVELS]
+        _, dd1 = prepared[0]
+        if not len(dd1["x"][0]):
+            raise pycoQCError("No reads with a start time to plot")
+
+        data = [go.Scatter(x=dd1["x"][i], y=dd1["y"][i], customdata=dd1["customdata"][i],
+                           name=dd1["name"][i], mode="lines", stackgroup="reasons",
+                           line={"width": 0.5, "color": color}, fillcolor=color,
+                           hovertemplate="%{y:.1f}% (%{customdata:,} reads)")
+                for i, color in enumerate(colors)]
+
+        layout = go.Layout(
+            plot_bgcolor="whitesmoke",
+            width=width,
+            height=height,
+            hovermode="x unified",
+            updatemenus=self._level_menu(prepared, "restyle", x=-0.07, y=0,
+                                         xanchor='right', yanchor='bottom'),
+            # Under the plot, in a row: the stack fills the whole area, and
+            # the reasons' names are long enough to run into the axis title
+            # down the side.
+            legend={"orientation": "h", "x": 0.5, "y": -0.18, "xanchor": "center",
+                    "yanchor": "top", "traceorder": "normal"},
+            margin={"b": 110},
+            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
+            yaxis={"title": "Share of reads (%)", "range": [0, 100], "zeroline": False,
+                   "showline": True, "fixedrange": True})
+
+        return go.Figure(data=data, layout=layout)
+
+    def _end_reason_data(self, df_level, reasons, time_bins=100):
+        """Share and count of reads per end reason and time interval.
+
+        Counted over the whole read set: a rare reason can be absent from a
+        sample, and counting is cheap.
+        """
+        self.logger.debug("\t\tPreparing data for {} reads".format(df_level))
+        label = self._level_label(df_level)
+
+        df, _ = self._level_dfs(df_level)
+        df = df.dropna(subset=["start_time"])
+        if df.empty:
+            empty = [[] for _ in reasons]
+            return label, dict(x=empty, y=empty, customdata=empty, name=list(reasons))
+
+        x, idx = self._time_bins(df["start_time"].to_numpy(dtype=np.float64) / 3600, time_bins)
+        codes = pd.Categorical(df["end_reason"].fillna("unknown"), categories=reasons).codes
+        counts = np.zeros((len(reasons), time_bins), dtype=np.int64)
+        np.add.at(counts, (codes, idx), 1)
+
+        # An interval without reads has no shares, rather than shares of 0
+        # that would draw the stack down to nothing.
+        total = counts.sum(axis=0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            share = np.where(total > 0, 100 * counts / total, np.nan)
+        overall = 100 * counts.sum(axis=1) / counts.sum()
+
+        return label, dict(
+            x=[x for _ in reasons],
+            y=[row for row in share],
+            customdata=[row for row in counts],
+            name=["{} ({:.1f}%)".format(r, o) for r, o in zip(reasons, overall)])
+
+    def active_channels_over_time(
+            self,
+            total_color: str = "rgb(102,168,255)",
+            interval_hours: float = 1.5,
+            width: int = None,
+            height: int = 500,
+            plot_title: str = "Active channels over experiment time"):
+        """
+        Plot how many channels produced at least one read in each time
+        interval, against the number the flow cell has. The decline over a
+        run is how fast its pores are being used up. Where the mux is
+        recorded, each channel is also counted under the mux its read came
+        from: MinKNOW moves channels between their four pores, and one group
+        dying early shows as one line falling away from the others.
+        * total_color
+            Color of the total line and area(hex, rgb, rgba, hsl, hsv or any CSS named colors https://www.w3.org/TR/css-color-3/#svg-color
+        * interval_hours
+            Length of the intervals channels are counted in. A channel
+            counts once per interval it produced a read in, so the count
+            depends on it. MinKNOW stops every channel for a mux scan every
+            hour and a half by default, and intervals that do not match that
+            cycle catch one scan in some and two in others: on a real run,
+            0.72 hour intervals swung by half the count from one to the next,
+            and 1.5 hour ones by a tenth. A run shorter than ten intervals is
+            divided into ten.
+        * width
+            With of the plotting area in pixel
+        * height
+            height of the plotting area in pixel
+        * plot_title
+            Title to display on top of the plot
+        """
+        if "channel" not in self.all_df or "start_time" not in self.all_df:
+            raise pycoQCError("No channel or start_time information available")
+        self.logger.info("\t\tComputing plot")
+
+        muxes = []
+        if self.has_mux:
+            muxes = sorted(int(m) for m in self.all_df["mux"].dropna().unique())
+        n_channels = self._flow_cell_channels
+
+        # One set of intervals for every read set, from the whole run, so
+        # switching between them moves the lines and not the axis.
+        t = self.all_df["start_time"].dropna().to_numpy(dtype=np.float64) / 3600
+        if t.size == 0:
+            raise pycoQCError("No reads with both a channel and a start time to plot")
+        span = float(t.max() - t.min())
+        step = min(interval_hours, span / 10) if span > 0 else interval_hours
+        intervals = (float(t.min()), step, max(1, int(round(span / step))))
+
+        prepared = [self._active_channels_data(level, muxes, n_channels, intervals)
+                    for level in LEVELS]
+        _, dd1 = prepared[0]
+        if not len(dd1["x"][0]):
+            raise pycoQCError("No reads with both a channel and a start time to plot")
+
+        data = [go.Scatter(x=dd1["x"][0], y=dd1["y"][0], name=dd1["name"][0], mode="lines",
+                           fill="tozeroy", line={"color": total_color, "width": 2})]
+        palette = ("#f44f39", "#f6c344", "#1b9e77", "#9b6fc3", "#828282")
+        data += [go.Scatter(x=dd1["x"][i], y=dd1["y"][i], name=dd1["name"][i], mode="lines",
+                            line={"color": palette[(i - 1) % len(palette)], "width": 1})
+                 for i in range(1, len(muxes) + 1)]
+        data.append(go.Scatter(x=dd1["x"][-1], y=dd1["y"][-1], name=dd1["name"][-1],
+                               mode="lines", hoverinfo="skip",
+                               line={"color": "gray", "width": 1, "dash": "dot"}))
+
+        layout = go.Layout(
+            plot_bgcolor="whitesmoke",
+            width=width,
+            height=height,
+            hovermode="x unified",
+            updatemenus=self._level_menu(prepared, "restyle", x=-0.07, y=0,
+                                         xanchor='right', yanchor='bottom'),
+            # Inside the plot, top right, where the count has fallen away
+            # from the flow cell line by then. To the left of the axis, the
+            # longer names ran into its title.
+            legend={"x": 0.99, "y": 0.97, "xanchor": 'right', "yanchor": 'top',
+                    "bgcolor": "rgba(255,255,255,0.7)"},
+            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
+            yaxis={"title": "Channels producing reads per {:g} h".format(intervals[1])
+                   if intervals[1] >= 0.1 else "Channels producing reads",
+                   "rangemode": "tozero",
+                   "zeroline": False, "showline": True, "fixedrange": True})
+
+        return go.Figure(data=data, layout=layout)
+
+    def _active_channels_data(self, df_level, muxes, n_channels, intervals):
+        """Distinct channels with a read in each interval, in total and per
+        mux, and the flow cell's channel count to compare them with.
+
+        Counted over the whole read set: a sample would miss the channels
+        that produced only a read or two, which is exactly the tail that
+        matters late in a run.
+        """
+        self.logger.debug("\t\tPreparing data for {} reads".format(df_level))
+        label = self._level_label(df_level)
+        names = (["All channels"] + ["Mux {}".format(m) for m in muxes]
+                 + ["Flow cell ({:,} channels)".format(n_channels)])
+
+        df, _ = self._level_dfs(df_level)
+        df = df.dropna(subset=["start_time", "channel"])
+        if df.empty:
+            empty = [[] for _ in names]
+            return label, dict(x=empty, y=empty, name=names)
+
+        # Each interval labelled by its centre; the end of the run that is
+        # left over joins the last one rather than being drawn as a short
+        # interval that looks like a collapse.
+        start, step, time_bins = intervals
+        x = start + step * (np.arange(time_bins) + 0.5)
+        t = df["start_time"].to_numpy(dtype=np.float64) / 3600
+        idx = np.clip(np.floor((t - start) / step).astype(np.int64), 0, time_bins - 1)
+        channel = df["channel"].to_numpy(dtype=np.int64)
+
+        def distinct(mask):
+            # One entry per (interval, channel) pair, then counted per interval.
+            pairs = np.unique(idx[mask] * (n_channels + 1) + channel[mask])
+            return np.bincount(pairs // (n_channels + 1), minlength=time_bins)
+
+        ys = [distinct(np.ones(len(df), dtype=bool))]
+        if muxes:
+            mux = df["mux"].to_numpy(dtype=np.float64, na_value=np.nan)
+            ys += [distinct(mux == m) for m in muxes]
+        ys.append(np.full(2, n_channels))
+        xs = [x for _ in ys[:-1]] + [[x[0], x[-1]]]
+
+        return label, dict(x=xs, y=ys, name=names)
+
     #~~~~~~~CHANNEL ACTIVITY METHODS AND HELPER~~~~~~~#
     def channels_activity(
             self,
@@ -2105,17 +2500,9 @@ class pycoQC_plot():
 
         self.logger.info("\t\tComputing plot")
 
-        # Define maximal number of channels
-        if self.is_promethion:
-            n_channels = 3000
-        elif self.is_flongle:
-            n_channels = 126
-        else:
-            n_channels = 512  # MinION / GridION
-        # A channel numbered past the platform's count, from a device or a
-        # summary this does not know, raised IndexError and took the report
-        # down. Widening the map to fit costs nothing.
-        n_channels = max(n_channels, int(self.all_df["channel"].max()))
+        # A channel numbered past the platform's count raised IndexError
+        # and took the report down; the map is widened to fit instead.
+        n_channels = self._flow_cell_channels
 
         # Prepare all data
         count_levels = ["reads", "bases"] if self.has_basecalls else ["reads"]

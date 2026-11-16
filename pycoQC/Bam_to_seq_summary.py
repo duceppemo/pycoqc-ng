@@ -21,6 +21,7 @@ from pycoQC.common import (
     parse_timestamp,
     pycoQCError,
     recursive_file_gen,
+    run_health_fields,
     elapsed_seconds_per_run)
 
 
@@ -65,7 +66,8 @@ class Bam_to_seq_summary():
             field the bam files carry: run_id, channel, barcode_arrangement,
             sequence_length_template, mean_qscore_template, gc_percent,
             start_time, passes_filtering, flowcell_id, device_id,
-            dorado_model, filename, sample_id and run_start_time. Naming a
+            dorado_model, filename, sample_id, run_start_time, duration,
+            template_duration, end_reason and mux. Naming a
             field that no bam carries is reported rather than ignored.
         * basecall_id
             id of the basecalling group. By default, leave to 0, but if you perform multiple basecalling on the same bam files,
@@ -246,7 +248,8 @@ class Bam_to_seq_summary():
                 dx:i:0  # 
                 RG:Z:e2419f1214664b2b48a1f01eebf8dfa6f28fb57a_dna_r9.4.1_e8_sup@v3.3  # <runid>_<basecalling_model>
                 """
-                tags_of_interest = ['BC', 'qs', 'du', 'ch', 'st', 'rn', 'fn', 'RG']
+                tags_of_interest = ['BC', 'qs', 'du', 'ch', 'st', 'rn', 'fn', 'RG',
+                                    'ns', 'ts', 'er', 'mx']
                 for tag_tuple in tags:
                     tag, value = tag_tuple
                     if tag in tags_of_interest:
@@ -324,6 +327,9 @@ class Bam_to_seq_summary():
                 entry_dict[read_id]['filename'] = file_name
                 entry_dict[read_id]['sample_id'] = sample_id
                 entry_dict[read_id]['run_start_time'] = run_start
+                # How the run went: the strand's time, why the read ended and
+                # which of the channel's pores it came from.
+                entry_dict[read_id].update(run_health_fields(bam_dict))
                 entry_dict[read_id]['path'] = os.path.abspath(bam_file)
 
         return entry_dict

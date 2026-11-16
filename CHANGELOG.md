@@ -9,6 +9,31 @@ a PromethION POD5 and MinKNOW multi-read FAST5 files. What broke is below,
 along with a restructuring of the plotting and report code that most of the
 fixes fell out of.
 
+**Added**
+
+* Three plots on how the run went, rather than what it produced:
+  * `end_reason_over_time`: the share of reads ending each way over the run.
+    A rising share of `unblock_mux_change` means pores are clogging; on a 72
+    hour Dorado run it went from 4.6% to 14.8%. On an adaptive sampling run,
+    `data_service_unblock_mux_change` is the rejection rate.
+  * `read_speed_1D` and `read_speed_over_time`: translocation speed in bases
+    per second, measured on the strand's own time so short reads are not
+    dragged down by the adapter. The JSON report carries its median and
+    percentiles.
+  * `active_channels_over_time`: channels producing reads per 1.5 hour
+    interval, MinKNOW's mux scan cycle, in total and per mux, against the
+    flow cell's channel count.
+
+  All three are in the default report, and the two that need no basecalls in
+  the report for POD5 and raw FAST5. The JSON report counts the end reasons.
+* The converters carry what these need. `Bam_to_seq_summary` and
+  `Fastq_to_seq_summary` write `duration`, `template_duration`, `end_reason`
+  and `mux` from Dorado's `du`, `ns`, `ts`, `er` and `mx` tags (for FASTQ,
+  basecalled with `-T`). `Pod5_to_seq_summary` writes `end_reason` and `mux`,
+  and `Fast5_to_seq_summary` adds `start_mux` to its default fields. Summaries
+  from Guppy, Dorado and MinKNOW already carry these columns, and pycoQC now
+  keeps them rather than discarding them on reading.
+
 **Fixed**
 
 * Multi-read FAST5 files written by MinKNOW before it added the `file_type`

@@ -157,7 +157,9 @@ class pycoQC_parse():
                 ("calibration", ("calibration_strand_genome_template",
                                  "calibration_strand_genome", "calibration")),
                 ("barcode", ("barcode_arrangement", "barcode")),
-                ("%GC", ("gc_percent", "%GC")))
+                ("%GC", ("gc_percent", "%GC")),
+                # FAST5 records the mux a read started on as start_mux.
+                ("mux", ("mux", "start_mux")))
 
             rename_colmanes = {}
             for target, sources in column_groups:
@@ -190,7 +192,13 @@ class pycoQC_parse():
                 optional_colnames=["read_len", "mean_qscore", "run_id",
                                    "channel", "start_time", "duration",
                                    "calibration", "barcode", "%GC",
-                                   "passes_filtering"])
+                                   "passes_filtering",
+                                   # How the run is going rather than what it
+                                   # produced: why each read ended, which of
+                                   # the channel's pores it came from, and
+                                   # the time the strand itself took, which
+                                   # gives the translocation speed.
+                                   "end_reason", "mux", "template_duration"])
 
         # Collect stats
         n = len(df)
@@ -401,7 +409,8 @@ class pycoQC_parse():
         # A converter emits a column even when it could not fill it, so an
         # entirely empty optional column means the information is absent
         # rather than that every read should be discarded.
-        for col in ("run_id", "channel", "start_time", "barcode", "%GC"):
+        for col in ("run_id", "channel", "start_time", "barcode", "%GC",
+                    "duration", "template_duration", "end_reason", "mux"):
             if col in df and df[col].isna().all():
                 self.logger.info("\tNo {} information available".format(col))
                 df = df.drop(columns=col)
@@ -417,6 +426,13 @@ class pycoQC_parse():
         # numbers must not be typed as numbers.
         if "barcode" in df:
             df["barcode"] = as_labels(df["barcode"])
+
+        # End reasons are names, written in capitals by some MinKNOW
+        # versions and in lower case by others.
+        if "end_reason" in df:
+            df["end_reason"] = df["end_reason"].astype("object").where(
+                df["end_reason"].isna(),
+                df["end_reason"].astype(str).str.strip().str.lower())
 
         if "barcode" in df and df["barcode"].isna().any():
             missing = int(df["barcode"].isna().sum())
@@ -592,8 +608,9 @@ class pycoQC_parse():
         # instead of dropping those reads for the sake of the dtype.
         self.logger.info("\tCast value to appropriate type")
         dtypes = {"channel": "uint16", "start_time": "float32",
-                  "read_len": "uint32", "mean_qscore": "float32"}
-        nullable = {"uint16": "UInt16", "uint32": "UInt32"}
+                  "read_len": "uint32", "mean_qscore": "float32",
+                  "mux": "uint8"}
+        nullable = {"uint8": "UInt8", "uint16": "UInt16", "uint32": "UInt32"}
         cast = {}
         for col, dtype in dtypes.items():
             if col not in df:
