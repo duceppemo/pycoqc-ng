@@ -237,7 +237,7 @@ class TestReportedTotalsAreTheRunsOwn:
         """Bases were scaled by the ratio of read counts, which the sampled
         reads do not obey: the yield on the plot contradicted the summary
         table on the same page."""
-        _, data, _ = sampled_plotter._pycoQC_plot__output_over_time_data(
+        _, data, _ = sampled_plotter._output_over_time_data(
             "all", count_level)
         exact = (len(sampled_plotter.all_df) if count_level == "reads"
                  else int(sampled_plotter.all_df["read_len"].sum()))
@@ -252,7 +252,7 @@ class TestReportedTotalsAreTheRunsOwn:
         """Pass and fail are sampled separately, so their scaled counts did
         not add up to the all reads row for any barcode."""
         def counts(level):
-            _, data = sampled_plotter._pycoQC_plot__summary_barcode_data(level)
+            _, data = sampled_plotter._summary_barcode_data(level)
             return {row[0]: row[1] for row in data["y"][0]}
 
         all_c, pass_c, fail_c = counts("all"), counts("pass"), counts("fail")
@@ -260,7 +260,7 @@ class TestReportedTotalsAreTheRunsOwn:
             assert pass_c.get(bc, 0) + fail_c.get(bc, 0) == all_c[bc]
 
     def test_the_barcode_pie_counts_the_whole_run(self, sampled_plotter):
-        _, data = sampled_plotter._pycoQC_plot__barcode_counts_data("all")
+        _, data = sampled_plotter._barcode_counts_data("all")
         assert sum(data["values"][0]) == len(sampled_plotter.all_df)
 
 

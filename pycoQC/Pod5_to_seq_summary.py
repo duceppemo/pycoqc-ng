@@ -9,16 +9,17 @@ import pod5 as p5
 from tqdm import tqdm
 
 # Local imports
-from pycoQC.common import path_has_token, pycoQCError, recursive_file_gen
+from pycoQC.common import (
+    VERBOSE_LEVELS,
+    check_converter_io,
+    get_logger,
+    path_has_token,
+    pycoQCError,
+    recursive_file_gen)
 
-# Disable multithreading for MKL and openBlas
-
-
-
-# Logger setup
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+# Configured when a conversion starts, not on import: setting up the root
+# logger here switched on INFO output for every library in the process.
 logger = logging.getLogger(__name__)
-logLevel_dict = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
@@ -54,18 +55,11 @@ class Pod5_to_seq_summary():
             Level of verbosity, from 2 (Chatty) to 0 (Nothing)
         """
         # Set logging level
-        logger.setLevel(logLevel_dict.get(verbose_level, logging.WARNING))
+        get_logger(__name__, level=VERBOSE_LEVELS.get(verbose_level, logging.WARNING))
 
         # Perform checks
         logger.info("Check input data and options")
-        if not os.access(pod5_dir, os.R_OK):
-            raise pycoQCError("Cannot read the indicated pod5 directory")
-        # dirname of a bare name is "", which is never writable, so
-        # a plain output filename was rejected.
-        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
-            raise pycoQCError("Cannot write the indicated seq_summary_fn")
-        if threads < 3:
-            raise pycoQCError("At least 3 threads required")
+        check_converter_io(pod5_dir, seq_summary_fn, threads, "pod5")
 
         # Save self args
         self.pod5_dir = pod5_dir
@@ -89,21 +83,27 @@ class Pod5_to_seq_summary():
         print('Found {} pod5 files to process'.format(len(pod5_list)))
 
         master_pod5_dict = dict()
+        repeated = 0
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            # list(tqdm(executor.map(f, iter), total=len(iter))
-            for results in list(tqdm(executor.map(Pod5_to_seq_summary.read_pod5,
-                                                  pod5_list), total=len(pod5_list))):
+            for results in tqdm(executor.map(Pod5_to_seq_summary.read_pod5, pod5_list),
+                                total=len(pod5_list), disable=self.verbose_level == 2):
+                # Reads are collected by id, so a read in two files is kept
+                # once. That happens when a directory holds a run and a copy
+                # of it, and it used to happen without a word, the read count
+                # simply coming out lower than the files suggested.
+                repeated += len(set(results).intersection(master_pod5_dict))
                 master_pod5_dict.update(results)
+
+        if repeated:
+            logger.warning(
+                "WARNING: {:,} read id(s) appear in more than one pod5 file and "
+                "were written once. Check whether the directory holds the same "
+                "run twice.".format(repeated))
 
         print('Writing "sequencing_summary" file...')
         Pod5_to_seq_summary.write_seq_summary(
             master_pod5_dict, self.seq_summary_fn,
             include_path=self.include_path)
-
-        # logger.info("Start processing pod5 files")
-        # # Print final
-        # logger.warning("Total reads: {} / Average speed: {} reads/s\n".format(
-        #     len(df), round(len(df)/(time()-t), 2)))
         print('Done')
 
     @staticmethod
@@ -222,6 +222,14 @@ class Pod5_to_seq_summary():
             and never read, so --include_path did nothing.
         """
         logger.debug("[WRITER] Write data to file")
+
+        # The files can open cleanly and hold no reads. That used to reach
+        # the report as an empty summary, rejected there with nothing to
+        # say the pod5 files were the problem.
+        if not pod5_dict:
+            raise pycoQCError(
+                "No reads found in the pod5 file(s). The files were read but "
+                "hold no reads.")
 
         # Convert dictionary to dataframe
         df = pd.DataFrame.from_dict(pod5_dict, orient='index')

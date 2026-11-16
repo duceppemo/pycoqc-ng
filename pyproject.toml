@@ -81,6 +81,9 @@ pythonpath = ["tests"]
 addopts = "-ra"
 filterwarnings = [
     "error::DeprecationWarning:pycoQC.*",
+    # The package used to silence FutureWarning for the whole process, which
+    # hid pandas deprecations until the release that removed them.
+    "error::FutureWarning:pycoQC.*",
 ]
 
 [tool.coverage.run]

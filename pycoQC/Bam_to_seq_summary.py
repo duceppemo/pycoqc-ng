@@ -12,6 +12,9 @@ import pysam
 
 # Local imports
 from pycoQC.common import (
+    VERBOSE_LEVELS,
+    check_converter_io,
+    get_logger,
     mean_qscore,
     path_below,
     path_has_token,
@@ -21,10 +24,9 @@ from pycoQC.common import (
     elapsed_seconds_per_run)
 
 
-# Logger setup
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+# Configured when a conversion starts, not on import: setting up the root
+# logger here switched on INFO output for every library in the process.
 logger = logging.getLogger(__name__)
-logLevel_dict = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
@@ -74,18 +76,11 @@ class Bam_to_seq_summary():
             Level of verbosity, from 2(Chatty) to 0(Nothing)
         """
         # Set logging level
-        logger.setLevel(logLevel_dict.get(verbose_level, logging.WARNING))
+        get_logger(__name__, level=VERBOSE_LEVELS.get(verbose_level, logging.WARNING))
 
         # Perform checks
         logger.info("Check input data and options")
-        if not os.access(bam_dir, os.R_OK):
-            raise pycoQCError("Cannot read the indicated bam directory")
-        # dirname of a bare name is "", which is never writable, so
-        # a plain output filename was rejected.
-        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
-            raise pycoQCError("Cannot write the indicated seq_summary_fn")
-        if threads < 3:
-            raise pycoQCError("At least 3 threads required")
+        check_converter_io(bam_dir, seq_summary_fn, threads, "bam")
 
         # Save self args
         self.bam_dir = bam_dir
@@ -116,8 +111,8 @@ class Bam_to_seq_summary():
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             read_one = partial(Bam_to_seq_summary.read_bam,
                                bam_dir=self.bam_dir)
-            for results in list(tqdm(executor.map(read_one, bam_list),
-                                     total=len(bam_list))):
+            for results in tqdm(executor.map(read_one, bam_list),
+                                total=len(bam_list), disable=self.verbose_level == 2):
                 # Reads are collected by id, so a read present in two files
                 # is written once. That is the right answer for a directory
                 # holding both an aligned and an unaligned copy of a run, but

@@ -2,12 +2,14 @@
 
 # Standard library imports
 from datetime import datetime as _datetime
-from os import access, R_OK, listdir, path, makedirs, walk
+from os import access, R_OK, W_OK, listdir, path, makedirs, walk
 from pathlib import Path
+import gzip
 import inspect
 from glob import glob
 import logging
 import re
+import traceback
 from collections import Counter, OrderedDict
 
 # Third party imports
@@ -173,35 +175,57 @@ def elapsed_seconds_per_run(df, time_col="start_time", run_col="run_id"):
 
 
 ##~~~~~~~ FUNCTIONS ~~~~~~~#
+def as_labels(values):
+    """Barcodes as names, without turning 6 into "6.0".
+
+    A column of bare numbers, as Deepbinner writes, is typed as a number,
+    and once a merge introduces a missing value it becomes a float, so the
+    plain string of it carries a decimal point into the report, the plot
+    and the name of the file Barcode_split writes.
+    """
+    if pd.api.types.is_float_dtype(values):
+        whole = values.dropna() % 1 == 0
+        if whole.all():
+            values = values.astype("Int64")
+    return values.astype("object").where(
+        values.isna(), values.astype(str).str.strip())
+
+
 def is_readable_file(fn):
     """Verify the readability of a file or list of file"""
     return path.isfile(fn) and access(fn, R_OK)
 
 
-def check_arg(arg_name, arg_val, required_type, allow_none=True, min=None, max=None, choices=[]):
-    """Check argument values and type"""
+def check_arg(arg_name, arg_val, required_type, allow_none=True, min=None, max=None, choices=()):
+    """Check an argument's type and range, coercing it where possible.
+
+    Failures raise pycoQCError, the one exception the command line turns
+    into a plain message. A bare Exception, which this used to raise, came
+    out as a traceback, and `except:` around the coercion also swallowed
+    KeyboardInterrupt.
+    """
     if allow_none and arg_val is None:
         return arg_val
 
     if not isinstance(arg_val, required_type):
         try:
             arg_val = required_type(arg_val)
-        except:
-            raise Exception("Argument `{}` value `{}` is not in correct type: `{}` and cannot be coerced".format(
+        except (TypeError, ValueError):
+            raise pycoQCError("Argument `{}` value `{}` is not in correct type: `{}` and cannot be coerced".format(
                 arg_name, arg_val, required_type.__name__))
 
     if required_type in [float, int]:
         # A bound of 0 is falsy, so testing truthiness skipped it entirely
         # and a negative min_pass_len or min_barcode_percent was accepted.
         if min is not None and arg_val < min:
-            raise Exception("Argument `{}` value `{}` is too low. Minimal value: {}".format(
+            raise pycoQCError("Argument `{}` value `{}` is too low. Minimal value: {}".format(
                 arg_name, arg_val, min))
         if max is not None and arg_val > max:
-            raise Exception("Argument `{}` value `{}` is too high. Maximal value: {}".format(
+            raise pycoQCError("Argument `{}` value `{}` is too high. Maximal value: {}".format(
                 arg_name, arg_val, max))
 
     if choices and arg_val not in choices:
-        raise Exception("Argument `{}` value `{}` is not in the list of possible choices. Choices: {}".format(
+        raise pycoQCError("Argument `{}` value `{}` is not in the list of possible choices. Choices: {}".format(
             arg_name, arg_val, ", ".join(choices)))
 
     return arg_val
@@ -315,21 +339,79 @@ def stop_processes(ps_list, timeout=5):
             proc.join(timeout)
 
 
-def get_logger(name=None, verbose=False, quiet=False):
-    """Set logger to appropriate log level"""
+# Converter verbosity, from --verbose_level.
+VERBOSE_LEVELS = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
+
+def format_worker_error(exc):
+    """What a converter's worker process reports when it fails.
+
+    A pycoQCError already says what is wrong with the input, so its message
+    is sent alone; wrapped in the worker's traceback it reached the user as
+    thirty lines of somebody else's stack with the reason at the bottom.
+    Anything else is a bug, and its traceback is how it gets found.
+
+    * exc
+        The exception being handled.
+    """
+    if isinstance(exc, pycoQCError):
+        return str(exc)
+    return traceback.format_exc()
+
+
+def get_logger(name=None, verbose=False, quiet=False, level=None):
+    """A logger for one module, set to the requested verbosity.
+
+    Progress is logged at INFO, so `quiet` leaves only warnings and errors.
+    Output goes through the root logger, which is given a plain handler only
+    if nothing has configured logging yet: importing a pycoQC module used to
+    configure the root logger at INFO as a side effect, which turned on the
+    debug chatter of every other library in the process.
+
+    * name
+        Logger name, normally the calling module's __name__.
+    * verbose, quiet
+        Debug output, or warnings only. Ignored when level is given.
+    * level
+        An explicit logging level.
+    """
     logging.basicConfig(format='%(message)s')
     logger = logging.getLogger(name)
 
-    # Define overall verbose level
-    if verbose:
-        logger.setLevel(logging.DEBUG)
-    elif quiet:
-        logger.setLevel(logging.WARNING)
-    else:
-        logger.setLevel(logging.INFO)
+    if level is None:
+        if verbose:
+            level = logging.DEBUG
+        elif quiet:
+            level = logging.WARNING
+        else:
+            level = logging.INFO
+    logger.setLevel(level)
 
     return logger
+
+
+def check_converter_io(in_dir, out_fn, threads, kind):
+    """The checks every converter makes before it starts.
+
+    * in_dir
+        Directory to read, which has to exist: os.access alone accepted a
+        plain file, which was then walked as a directory and reported as
+        holding no reads.
+    * out_fn
+        Summary to write. Its directory has to be writable; a bare file
+        name means the current directory.
+    * threads
+        Total threads asked for. One reads and one writes, so at least
+        three are needed for any parsing to happen.
+    * kind
+        Name of the input format, for the messages.
+    """
+    if not path.isdir(in_dir) or not access(in_dir, R_OK):
+        raise pycoQCError("Cannot read the indicated {} directory: {}".format(kind, in_dir))
+    if not access(path.dirname(path.abspath(out_fn)), W_OK):
+        raise pycoQCError("Cannot write the indicated seq_summary_fn: {}".format(out_fn))
+    if threads < 3:
+        raise pycoQCError("At least 3 threads required")
 
 
 def doc_func(func):
@@ -446,10 +528,10 @@ def jhelp(f):
         if "required" in arg_val:
             s+= "(required)"
         if "type" in arg_val:
-            if type(list) == type:
-                s+= " [{}]".format(arg_val["type"].__name__)
-            else:
-                s+= " [{}]".format(arg_val["type"])
+            # An annotation need not be a class, and only classes have a
+            # __name__. The test guarding this compared type(list) with type,
+            # which is always true, so a string annotation raised.
+            s+= " [{}]".format(getattr(arg_val["type"], "__name__", arg_val["type"]))
         s+="\n\n"
         # Arg doc section
         if "help" in arg_val:
@@ -461,7 +543,7 @@ def jhelp(f):
 
 def head(fp, n=10, sep="\t", comment=None):
     """
-    Emulate linux head cmd. Handle gziped files and bam files
+    Emulate linux head cmd, for plain or gzipped text files
     * fp
         Path to the file to be parsed.
     * n
@@ -469,9 +551,11 @@ def head(fp, n=10, sep="\t", comment=None):
     """
     line_list = []
 
-    # Get lines
+    # Get lines. Summaries are routinely kept gzipped, and opening one as
+    # text raised UnicodeDecodeError rather than showing it.
+    opener = gzip.open if str(fp).endswith(".gz") else open
     try:
-        with open(fp) as fh:
+        with opener(fp, "rt") as fh:
             line_num = 0
             while(line_num < n):
                 l= next(fh).strip()
@@ -523,19 +607,36 @@ def ls(dir_path):
 
 
 def expand_file_names(fn, bam_check=False):
-    """"""
-    # Try to expand file name to list
-    if isinstance(fn, list):
-        if len(fn) == 1:
-            fn_list = glob(fn[0])
-        else:
-            fn_list = []
-            for f in fn:
-                fn_list.extend(glob(f))
-    elif isinstance(fn, str):
-        fn_list = glob(fn)
+    """Turn file names and glob patterns into a list of readable files.
+
+    * fn
+        A path or glob pattern, or a list of them.
+    * bam_check
+        Also require each file to be a sorted, indexed BAM.
+
+    A name that exists is taken literally. glob reads square brackets as a
+    character class, so a summary called run[1].txt could not be named at
+    all. Matches are sorted, since glob returns them in directory order and
+    the order of the files decides the order of runs with no start times.
+    A file named twice, or matched by two patterns, is read once: reading it
+    twice doubled every count in the report.
+    """
+    if isinstance(fn, str):
+        patterns = [fn]
+    elif isinstance(fn, (list, tuple)):
+        patterns = list(fn)
     else:
         raise pycoQCError("{} has to be either a file or a regular expression or a list of files".format(fn))
+
+    fn_list = []
+    seen = set()
+    for pattern in patterns:
+        matches = [pattern] if path.isfile(pattern) else sorted(glob(pattern))
+        for match in matches:
+            key = path.abspath(match)
+            if key not in seen:
+                seen.add(key)
+                fn_list.append(match)
 
     # Verify that files are readable
     if not fn_list:

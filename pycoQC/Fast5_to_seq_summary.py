@@ -1,17 +1,9 @@
-# Disable multithreading for MKL and openBlas
-import os
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["MKL_THREADING_LAYER"] = "sequential"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
+import os
 import multiprocessing as mp
 from time import time
 from collections import Counter, OrderedDict
-import traceback
 import logging
 
 # Third party imports
@@ -21,13 +13,13 @@ from tqdm import tqdm
 
 # Local imports
 from pycoQC.common import (
-    dict_to_str, path_below, path_has_token, pycoQCError,
-    recursive_file_gen, stop_processes)
+    VERBOSE_LEVELS, check_converter_io, dict_to_str, format_worker_error, get_logger,
+    path_below, path_has_token, pycoQCError, recursive_file_gen,
+    stop_processes)
 
-# Logger setup
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+# Configured when a conversion starts, not on import: setting up the root
+# logger here switched on INFO output for every library in the process.
 logger = logging.getLogger(__name__)
-logLevel_dict = logLevel_dict = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
 class Fast5_to_seq_summary ():
@@ -108,18 +100,15 @@ class Fast5_to_seq_summary ():
             Level of verbosity, from 2 (Chatty) to 0 (Nothing)
         """
         # Set logging level
-        logger.setLevel(logLevel_dict.get(verbose_level, logging.WARNING))
+        # Kept, so each worker can set it again: a worker that is spawned
+        # rather than forked, as on macOS and from Python 3.14 on Linux,
+        # starts with a fresh logger and printed none of its counts.
+        self.log_level = VERBOSE_LEVELS.get(verbose_level, logging.WARNING)
+        get_logger(__name__, level=self.log_level)
 
         # Perform checks
-        logger.info ("Check input data and options")
-        if not os.access(fast5_dir, os.R_OK):
-            raise pycoQCError("Cannot read the indicated fast5 directory")
-        # dirname of a bare name is "", which is never writable, so
-        # a plain output filename was rejected.
-        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
-            raise pycoQCError("Cannot write the indicated seq_summary_fn")
-        if threads < 3:
-            raise pycoQCError("At least 3 threads required")
+        logger.info("Check input data and options")
+        check_converter_io(fast5_dir, seq_summary_fn, threads, "fast5")
         for field in fields:
             # passes_filtering is not an attribute of anything: a FAST5 does
             # not record it, so it is read from the path the basecaller
@@ -177,6 +166,7 @@ class Fast5_to_seq_summary ():
         Mono-threaded worker adding fast5 files found in a directory tree recursively
         to a feeder queue for the multiprocessing workers
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[READER] Start listing fast5 files")
         try:
             # Load an input queue with fast5 file path. The count is kept
@@ -198,8 +188,8 @@ class Fast5_to_seq_summary ():
             logger.debug("[READER] Add a total of {} files to input queue".format(count))
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             for i in range(self.threads):
                 in_q.put(None)
@@ -208,6 +198,7 @@ class Fast5_to_seq_summary ():
         """
         Multi-threaded workers in charge of parsing fast5 file.
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[WORKER_{:02}] Start processing fast5 files".format(worker_id))
         try:
             c = {"overall": Counter(), "fields_found": Counter(), "fields_not_found": Counter()}
@@ -216,19 +207,10 @@ class Fast5_to_seq_summary ():
 
                 with h5py.File(fast5_fn, "r") as h5_fp:
 
-                    # HDF5 hands the attribute back as bytes or as str
-                    # depending on how it was written, and ont_fast5_api
-                    # writes str. Comparing against bytes alone made those
-                    # files look single-read, and the conversion then died
-                    # looking for /Raw/Reads.
-                    file_type = h5_fp.attrs.get('file_type')
-                    if isinstance(file_type, bytes):
-                        file_type = file_type.decode('utf8')
-                    multi_read = file_type == 'multi-read'
-
+                    multi_read = self._is_multi_read(h5_fp)
                     if multi_read:
-                        read_ids = list(h5_fp["/"].keys())
-                    else: 
+                        read_ids = [k for k in h5_fp["/"].keys() if k.startswith("read_")]
+                    else:
                         read_ids = list(h5_fp["/Raw/Reads"].keys())
 
                     for read_id in read_ids:
@@ -308,19 +290,21 @@ class Fast5_to_seq_summary ():
                         if self.include_path:
                             d["path"] = os.path.abspath(fast5_fn)
 
-                        # Put read data in queue
+                        # Put read data in queue. Counted per read, which
+                        # is what this loop visits; a multi-read file holds
+                        # thousands.
                         if d:
                             out_q.put(d)
-                            c["overall"]["valid files"] += 1
+                            c["overall"]["valid reads"] += 1
                         else:
-                            c["overall"]["invalid files"] += 1
+                            c["overall"]["invalid reads"] += 1
 
             # Put counter in counter queue
             counter_q.put(c)
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             out_q.put(None)
 
@@ -328,6 +312,7 @@ class Fast5_to_seq_summary ():
         """
         Mono-threaded Worker writing the sequencing summary file
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[WRITER] Start collecting summary data")
 
         t = time()
@@ -340,8 +325,15 @@ class Fast5_to_seq_summary ():
                         l.append(d)
                         pbar.update(1)
 
-            # Transform collected data to dataframe and write to file
+            # Transform collected data to dataframe and write to file. Files
+            # holding no reads used to give an empty summary, which pycoQC
+            # then rejected with a message about the summary rather than
+            # about the fast5 files.
             logger.debug("[WRITER] Write data to file")
+            if not l:
+                raise pycoQCError(
+                    "No reads found in the fast5 file(s). The files were read "
+                    "but hold no reads.")
             df = pd.DataFrame(l)
             df.to_csv(self.seq_summary_fn, sep="\t", index=False)
 
@@ -363,10 +355,29 @@ class Fast5_to_seq_summary ():
                 len(df), round(len(df)/(time()-t), 2)))
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             error_q.put(None)
+
+    @staticmethod
+    def _is_multi_read(h5_fp):
+        """Whether a FAST5 holds many reads or one.
+
+        file_type says so when it is there. HDF5 hands it back as bytes or as
+        str depending on how it was written, and ont_fast5_api writes str.
+        MinKNOW wrote multi-read files for some time before it added the
+        attribute at all, file_version 1.0 and 2.0 among them, and those were
+        taken for single read files: the conversion died looking for
+        /Raw/Reads. Such a file is recognised by its layout instead, one top
+        level read_<id> group per read.
+        """
+        file_type = h5_fp.attrs.get('file_type')
+        if isinstance(file_type, bytes):
+            file_type = file_type.decode('utf8')
+        if file_type:
+            return file_type == 'multi-read'
+        return "Raw" not in h5_fp and any(k.startswith("read_") for k in h5_fp.keys())
 
     @staticmethod
     def _get_h5_attrs(fp, grp, attrs):

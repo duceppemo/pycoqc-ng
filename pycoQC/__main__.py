@@ -4,6 +4,7 @@
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
 import argparse
+import functools
 import sys
 import textwrap
 from importlib.resources import files
@@ -15,12 +16,31 @@ from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 from pycoQC.Pod5_to_seq_summary import Pod5_to_seq_summary
 from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary
 from pycoQC.Barcode_split import barcode_split
-from pycoQC.common import get_logger
+from pycoQC.common import get_logger, pycoQCError
 from pycoQC import __version__ as package_version
 from pycoQC import __package_name__ as package_name
 
 
+def _report_errors(main):
+    """Turn a pycoQCError into a one line message and exit status 1.
+
+    pycoQCError is what pycoQC raises for a problem with the input or the
+    options, which the person running the command can fix, and a traceback
+    buried the sentence that said how. Anything else is a bug and keeps its
+    traceback.
+    """
+    @functools.wraps(main)
+    def wrapper(args=None):
+        try:
+            return main(args)
+        except pycoQCError as E:
+            sys.stderr.write("ERROR: {}\n".format(E))
+            sys.exit(1)
+    return wrapper
+
+
 #~~~~~~~~~~~~~~pycoQC CLI ENTRY POINT~~~~~~~~~~~~~~#
+@_report_errors
 def main_pycoQC(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -78,6 +98,14 @@ def main_pycoQC(args=None):
     parser_filt.add_argument("--min_barcode_percent", default=0.1, type=float,
                              help="Minimal percent of total reads to retain barcode label. If below, the barcode value "
                                   "is set as `unclassified`(default: %(default)s)")
+    # The Python API has always taken this, and so did the original pycoQC
+    # command line; this one had lost it.
+    parser_filt.add_argument("--runid_list", default=[], nargs='*',
+                             help=textwrap.dedent("Select only specific runids to be analysed. Can also be used to "
+                                                  "force pycoQC to order the runids for temporal plots, if the "
+                                                  "sequencing_summary file contain several successive runs. By default "
+                                                  "pycoQC analyses all the runids in the file and orders them by "
+                                                  "decreasing throughput(default: all runids)"))
     parser_html = parser.add_argument_group('HTML report options')
     parser_html.add_argument("--report_title", default="PycoQC report", type=str,
                              help="Title to use in the html report(default: %(default)s)")
@@ -134,6 +162,7 @@ def main_pycoQC(args=None):
         summary_file=args.summary_file,
         barcode_file=args.barcode_file,
         bam_file=args.bam_file,
+        runid_list=args.runid_list,
         filter_calibration=args.filter_calibration,
         filter_duplicated=args.filter_duplicated,
         min_barcode_percent=args.min_barcode_percent,
@@ -152,6 +181,7 @@ def main_pycoQC(args=None):
 
 
 #~~~~~~~~~~~~~~Fast5_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
+@_report_errors
 def main_Fast5_to_seq_summary(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -211,6 +241,7 @@ def main_Fast5_to_seq_summary(args=None):
 
 
 #~~~~~~~~~~~~~~Fastq_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
+@_report_errors
 def main_Fastq_to_seq_summary(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -263,6 +294,7 @@ def main_Fastq_to_seq_summary(args=None):
         verbose_level=args.verbose_level)
 
 
+@_report_errors
 def main_Pod5_to_seq_summary(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -310,6 +342,7 @@ def main_Pod5_to_seq_summary(args=None):
 
 
 #~~~~~~~~~~~~~~Bam_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
+@_report_errors
 def main_Bam_to_seq_summary(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -358,6 +391,7 @@ def main_Bam_to_seq_summary(args=None):
 
 
 #~~~~~~~~~~~~~~Barcode_split CLI ENTRY POINT~~~~~~~~~~~~~~#
+@_report_errors
 def main_Barcode_split(args=None):
     if args is None:
         args = sys.argv[1:]

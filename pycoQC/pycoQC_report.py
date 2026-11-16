@@ -16,8 +16,10 @@ import datetime
 import os
 
 # Third party imports
+import plotly.graph_objs as go
 import plotly.offline as py
 import jinja2
+from markupsafe import Markup
 
 # Local imports
 from pycoQC.common import get_logger, mkbasedir, pycoQCError
@@ -180,56 +182,27 @@ class pycoQC_report ():
                     cover.to_image(format="pdf", width=width, height=height))))
             except Exception as E:
                 self.logger.info("\t\tCould not render the cover: {}".format(E))
-        for method_name, method_args in config_dict.items():
-            if skip_coverage_plot and method_name == "alignment_coverage":
-                self.logger.info("\tSkipping method {}".format(method_name))
-                continue
+        for method_name, plot_title, fig in self._iter_figures(config_dict, skip_coverage_plot):
+            # A plot that asked for more room than a page gets it: the
+            # per barcode table and pie size themselves to the number of
+            # barcodes, and forcing them back to the page height cut a
+            # 96 barcode run off after the twelfth row.
+            page_height = max(height, int(fig["layout"]["height"] or 0))
+
+            fig.update_layout(title=dict(text=plot_title),
+                              width=width, height=page_height)
             try:
-                self.logger.info("\tRunning method {}".format(method_name))
-                method_args = dict(method_args)
-                plot_title = method_args.pop("plot_title", method_name)
-
-                fig = getattr(self.plotter, method_name)(**method_args)
-                if not fig["data"]:
-                    continue
-
-                # A plot that asked for more room than a page gets it: the
-                # per barcode table and pie size themselves to the number of
-                # barcodes, and forcing them back to the page height cut a
-                # 96 barcode run off after the twelfth row.
-                page_height = max(height, int(fig["layout"]["height"] or 0))
-
-                fig.update_layout(title=dict(text=plot_title),
-                                  width=width, height=page_height)
-                try:
-                    page = fig.to_image(format="pdf", width=width,
-                                        height=page_height)
-                except Exception as E:
-                    raise pycoQCError(
-                        "Could not render {} to PDF. Writing a PDF report "
-                        "needs the pdf extra: pip install 'pycoqc-ng[pdf]'. "
-                        "Underlying error: {}".format(method_name, E))
-                writer.append(PdfReader(io.BytesIO(page)))
-                n_plots += 1
-
-            except AttributeError as E:
-                # Only a genuinely absent method is routine here. An
-                # AttributeError raised inside a plot that does exist is a
-                # bug, and reporting it as an unknown plot name hid it.
-                if hasattr(self.plotter, method_name):
-                    self.logger.warning(
-                        "WARNING: {} failed with {}: {}".format(
-                            method_name, type(E).__name__, E))
-                else:
-                    self.logger.info(
-                        "\t\t{} is not a valid plotting method".format(method_name))
-
-            except pycoQCError as E:
-                # A plot whose data is unavailable is skipped, as in the HTML
-                # report, but a missing rendering engine is fatal.
-                if "pdf extra" in str(E):
-                    raise
-                self.logger.info("\t\t{}".format(E))
+                page = fig.to_image(format="pdf", width=width,
+                                    height=page_height)
+            except Exception as E:
+                # Unlike a plot without data, a rendering engine that does
+                # not work is fatal: every page would fail the same way.
+                raise pycoQCError(
+                    "Could not render {} to PDF. Writing a PDF report "
+                    "needs the pdf extra: pip install 'pycoqc-ng[pdf]'. "
+                    "Underlying error: {}".format(method_name, E))
+            writer.append(PdfReader(io.BytesIO(page)))
+            n_plots += 1
 
         if not n_plots:
             raise pycoQCError("No plot could be rendered for the PDF report")
@@ -242,8 +215,6 @@ class pycoQC_report ():
 
     def _pdf_cover(self, report_title, width, height):
         """Build the PDF's first page: title, run details and provenance"""
-        import plotly.graph_objs as go
-
         generated = datetime.datetime.now().astimezone()
         rows = []
         for key, value in (getattr(self.parser, "run_metadata", None) or {}).items():
@@ -307,50 +278,16 @@ class pycoQC_report ():
         # Loop over configuration file and run the pycoQC functions defined
         plots = list()
         titles = list()
-        for method_name, method_args in config_dict.items():
-            if skip_coverage_plot and method_name == "alignment_coverage":
-                self.logger.info("\tSkipping method {}".format(method_name))
-                continue
-            try:
-                self.logger.info("\tRunning method {}".format(method_name))
-                self.logger.debug("\t{} ({})".format(method_name, method_args))
-
-                # Store plot title for HTML title and remove from data
-                # passed to plotly. A user written config entry need not
-                # carry one, and requiring it raised an uncaught KeyError.
-                method_args = dict(method_args)
-                plot_title = method_args.pop("plot_title", method_name)
-                method_args["plot_title"] = ""
-
-                # Get method and generate plot
-                method = getattr(self.plotter, method_name)
-                fig = method(**method_args)
-                if fig['data']:  # Do not display %GC graph if no data available
-                    plot = py.plot(
-                        fig,
-                        output_type='div',
-                        include_plotlyjs=False,
-                        image_width='',
-                        image_height='',
-                        auto_open=False)
-
-                    plots.append(plot)
-                    titles.append(plot_title)
-
-            except AttributeError as E:
-                # Only a genuinely absent method is routine here. An
-                # AttributeError raised inside a plot that does exist is a
-                # bug, and reporting it as an unknown plot name hid it.
-                if hasattr(self.plotter, method_name):
-                    self.logger.warning(
-                        "WARNING: {} failed with {}: {}".format(
-                            method_name, type(E).__name__, E))
-                else:
-                    self.logger.info(
-                        "\t\t{} is not a valid plotting method".format(method_name))
-
-            except pycoQCError as E:
-                self.logger.info("\t\t{}".format(E))
+        for method_name, plot_title, fig in self._iter_figures(
+                config_dict, skip_coverage_plot, blank_title=True):
+            plots.append(Markup(py.plot(
+                fig,
+                output_type='div',
+                include_plotlyjs=False,
+                image_width='',
+                image_height='',
+                auto_open=False)))
+            titles.append(plot_title)
 
         # Load HTML template for Jinja
         self.logger.info("\tLoading HTML template")
@@ -372,38 +309,43 @@ class pycoQC_report ():
         # dropped. Empty for a summary that carries none.
         run_meta = getattr(self.parser, "run_metadata", None) or OrderedDict()
 
-        # Define source files list
-        src_files = ""
+        # Define source files list. The paths are escaped: a directory
+        # name holding & or < broke the page's markup around it.
+        source_files = OrderedDict()
         for files_list, name in (
                 (self.parser.summary_files_list, "summary"),
                 (self.parser.barcode_files_list, "barcode"),
                 (self.parser.bam_file_list, "bam")):
-
             if files_list:
-                src_files += "<h4>Source {} files</h4><ul>".format(name)
-                for f in files_list:
-                    f = os.path.abspath(f)
-                    src_files += "<li>{}</li>".format(f)
-                src_files += "</ul>"
+                source_files[name] = [os.path.abspath(f) for f in files_list]
+        # Kept as ready made HTML for templates written against it.
+        src_files = Markup("").join(
+            Markup("<h4>Source {} files</h4><ul>{}</ul>").format(
+                name, Markup("").join(Markup("<li>{}</li>").format(f) for f in paths))
+            for name, paths in source_files.items())
 
-        # Render plots
+        # Render plots. Everything generated here is marked safe; what came
+        # from the input, the run details and the title, is escaped by the
+        # default template.
         self.logger.info("\tRendering plots in d3js")
         rendering = template.render(
             plots=plots,
             titles=titles,
-            plotlyjs=py.get_plotlyjs(),
+            plotlyjs=Markup(py.get_plotlyjs()),
             report_title=report_title,
             report_subtitle=report_subtitle,
             report_meta=report_meta,
             run_meta=run_meta,
             logo_url=_logo_data_uri(),
-            spectre_css=_spectre_css(),
+            spectre_css=Markup(_spectre_css()),
+            source_files=source_files,
             src_files=src_files)
 
-        # Write to HTML file
+        # Write to HTML file, in the encoding the page declares rather than
+        # whatever the locale's default happens to be.
         self.logger.info("\tWriting to HTML file")
         mkbasedir(outfile, exist_ok=True)
-        with open(outfile, "w") as fp:
+        with open(outfile, "w", encoding="utf-8") as fp:
             fp.write(rendering)
 
     def json_report(self,
@@ -415,7 +357,7 @@ class pycoQC_report ():
 
         self.logger.info("\tWriting to JSON file")
         mkbasedir(outfile, exist_ok=True)
-        with open(outfile, "w") as fp:
+        with open(outfile, "w", encoding="utf-8") as fp:
             # A run with no alignments, or a barcode with no passing reads,
             # leaves NaN in the stats. json.dump writes that as a bare NaN,
             # which Python reads back but which is not JSON: jq, R and
@@ -424,6 +366,71 @@ class pycoQC_report ():
             json.dump(_json_safe(res_dict), fp, indent=2, allow_nan=False)
 
     #~~~~~~~~~~~~~~PRIVATE FUNCTION~~~~~~~~~~~~~~#
+
+    def _iter_figures(self, config_dict, skip_coverage_plot=False, blank_title=False):
+        """Run each plot the configuration names, yielding the ones drawn.
+
+        Shared by the HTML and PDF reports, which used to carry a copy each
+        of this loop and of its error handling.
+
+        Yields (method name, title, figure). A plot whose data the run does
+        not have raises pycoQCError and is skipped, as is a name that is not
+        a plotting method. Any other failure is reported as a warning and
+        the rest of the report is still written: one plot tripping over an
+        unusual run is no reason to lose all the others.
+
+        * config_dict
+            Plot names mapped to the arguments for each.
+        * skip_coverage_plot
+            Leave out alignment_coverage.
+        * blank_title
+            Draw the figure without its title, for a page that prints the
+            title itself.
+        """
+        for method_name, method_args in config_dict.items():
+            if skip_coverage_plot and method_name == "alignment_coverage":
+                self.logger.info("\tSkipping method {}".format(method_name))
+                continue
+
+            # Only the public plotting methods. A config naming a private
+            # helper, or summary_stats_dict, called it and then failed on
+            # its return value.
+            method = getattr(self.plotter, method_name, None)
+            if method_name.startswith("_") or not callable(method):
+                self.logger.info("\t\t{} is not a valid plotting method".format(method_name))
+                continue
+
+            self.logger.info("\tRunning method {}".format(method_name))
+            self.logger.debug("\t{} ({})".format(method_name, method_args))
+
+            # Store plot title for HTML title and remove from data
+            # passed to plotly. A user written config entry need not
+            # carry one, and requiring it raised an uncaught KeyError.
+            method_args = dict(method_args or {})
+            plot_title = method_args.pop("plot_title", method_name)
+            if blank_title:
+                method_args["plot_title"] = ""
+
+            try:
+                fig = method(**method_args)
+            except pycoQCError as E:
+                self.logger.info("\t\t{}".format(E))
+                continue
+            except Exception as E:
+                self.logger.warning(
+                    "WARNING: {} failed with {}: {}".format(
+                        method_name, type(E).__name__, E))
+                self.logger.debug("", exc_info=True)
+                continue
+
+            if not isinstance(fig, go.Figure):
+                self.logger.info("\t\t{} is not a valid plotting method".format(method_name))
+                continue
+            # Do not display %GC graph if no data available
+            if not fig["data"]:
+                continue
+
+            yield method_name, plot_title, fig
 
     def _get_config(self, config_file=None):
         """"""
@@ -493,8 +500,12 @@ class pycoQC_report ():
 
         # Last use the default harcoded config_dict
         self.logger.debug("\tRead default jinja template")
+        # select_autoescape matches on the end of the name, and the
+        # template is called spectre.html.j2, so ["html"] alone left it
+        # unescaped: a sample name holding & or < went into the page as
+        # markup.
         env = jinja2.Environment(
             loader=jinja2.PackageLoader('pycoQC', 'templates'),
-            autoescape=jinja2.select_autoescape(["html"]))
+            autoescape=jinja2.select_autoescape(["html", "html.j2"]))
         template = env.get_template('spectre.html.j2')
         return template

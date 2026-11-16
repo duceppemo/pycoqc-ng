@@ -1,17 +1,9 @@
-# Disable multithreading for MKL and openBlas
-import os
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["MKL_THREADING_LAYER"] = "sequential"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
+import os
 import multiprocessing as mp
 from time import time
 from collections import Counter, OrderedDict
-import traceback
 import logging
 from itertools import islice
 import gzip
@@ -22,7 +14,11 @@ from tqdm import tqdm
 
 # Local imports
 from pycoQC.common import (
+    VERBOSE_LEVELS,
+    check_converter_io,
+    format_worker_error,
     dict_to_str,
+    get_logger,
     path_below,
     path_has_token,
     mean_qscore,
@@ -33,10 +29,9 @@ from pycoQC.common import (
     elapsed_seconds_per_run)
 
 
-# Logger setup
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+# Configured when a conversion starts, not on import: setting up the root
+# logger here switched on INFO output for every library in the process.
 logger = logging.getLogger(__name__)
-logLevel_dict = {2: logging.DEBUG, 1: logging.INFO, 0: logging.WARNING}
 
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
@@ -260,18 +255,15 @@ class Fastq_to_seq_summary():
             Level of verbosity, from 2(Chatty) to 0(Nothing)
         """
         # Set logging level
-        logger.setLevel(logLevel_dict.get(verbose_level, logging.WARNING))
+        # Kept, so each worker can set it again: a worker that is spawned
+        # rather than forked, as on macOS and from Python 3.14 on Linux,
+        # starts with a fresh logger and printed none of its counts.
+        self.log_level = VERBOSE_LEVELS.get(verbose_level, logging.WARNING)
+        get_logger(__name__, level=self.log_level)
 
         # Perform checks
         logger.info("Check input data and options")
-        if not os.access(fastq_dir, os.R_OK):
-            raise pycoQCError("Cannot read the indicated fastq directory")
-        # dirname of a bare name is "", which is never writable, so
-        # a plain output filename was rejected.
-        if not os.access(os.path.dirname(os.path.abspath(seq_summary_fn)), os.W_OK):
-            raise pycoQCError("Cannot write the indicated seq_summary_fn")
-        if threads < 3:
-            raise pycoQCError("At least 3 threads required")
+        check_converter_io(fastq_dir, seq_summary_fn, threads, "fastq")
 
         # Save self args
         self.fastq_dir = fastq_dir
@@ -329,6 +321,7 @@ class Fastq_to_seq_summary():
         process count was the thread count squared; queueing chunks spreads a
         single file across all workers without that nesting.
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[READER] Start reading fastq files")
         try:
             # Load an input queue with blocks of fastq lines
@@ -351,8 +344,8 @@ class Fastq_to_seq_summary():
             logger.debug("[READER] Read a total of {} files".format(i))
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             for i in range(self.threads):
                 in_q.put(None)
@@ -361,6 +354,7 @@ class Fastq_to_seq_summary():
         """
         Multi-threaded workers in charge of parsing blocks of fastq lines.
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[WORKER_{:02}] Start parsing fastq chunks".format(worker_id))
         try:
             c = {"overall": Counter(), "fields_found": Counter(), "fields_not_found": Counter()}
@@ -399,8 +393,8 @@ class Fastq_to_seq_summary():
             counter_q.put(c)
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             out_q.put(None)
 
@@ -408,6 +402,7 @@ class Fastq_to_seq_summary():
         """
         Mono-threaded Worker writing the sequencing summary file
         """
+        get_logger(__name__, level=self.log_level)
         logger.debug("[WRITER] Start collecting summary data")
 
         t = time()
@@ -471,7 +466,7 @@ class Fastq_to_seq_summary():
                                                                                   round(len(df) / (time() - t), 2)))
 
         # Manage exceptions and deal poison pills
-        except Exception:
-            error_q.put(traceback.format_exc())
+        except Exception as E:
+            error_q.put(format_worker_error(E))
         finally:
             error_q.put(None)

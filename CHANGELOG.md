@@ -1,5 +1,91 @@
 # Changelog
 
+### Unreleased
+
+Every entry point was run against real data: the original Albacore and
+Guppy summaries, a MinKNOW R10.4.1 summary, a 1.25 million read Dorado
+summary with a minimap2 BAM, Dorado BAM and FASTQ demultiplexed by barcode,
+a PromethION POD5 and MinKNOW multi-read FAST5 files. What broke is below,
+along with a restructuring of the plotting and report code that most of the
+fixes fell out of.
+
+**Fixed**
+
+* Multi-read FAST5 files written by MinKNOW before it added the `file_type`
+  attribute (`file_version` 1.0 and 2.0) were taken for single read files,
+  and `Fast5_to_seq_summary` died looking for `/Raw/Reads`. They are now
+  recognised by their layout.
+* `pycoQC -v` on a run that has not been basecalled, a POD5 or MinKNOW
+  summary, printed a traceback in the middle of the run.
+* On a run with no failing reads, or no passing ones, the *Fail Reads* button
+  of the density, over time and channel plots changed nothing, so the plot
+  went on showing the previous read set under the new label.
+* `--quiet` printed every progress step, which were logged as warnings.
+* `runid_list` was ignored for a summary without start times, and is now
+  also available on the command line as `--runid_list`, as it was in the
+  original pycoQC. A single run id given as a string in Python is no longer
+  read as a list of its characters.
+* Barcode names with numbers in them are sorted as numbers everywhere,
+  so `barcode2` comes before `barcode10`; the per barcode boxplots also
+  sorted `barcode10` before `barcode2` on their own.
+* `Barcode_split` named its files `sequencing_summary_6.0.txt` for a summary
+  of numeric barcodes with a blank among them, and a barcode name holding a
+  `/` wrote outside the output directory.
+* The coverage plot drew a rectangle and a label for every reference, so an
+  assembly with 233,000 contigs made a 31 MB plot that took a minute and a
+  half. Past 100 references they are left off. With an even number of
+  references the last one was never shaded.
+* The channel activity map raised `IndexError` for a channel numbered past
+  the platform's count, and drew channel 0's reads on the last channel.
+* A summary named twice on the command line, or matched by two patterns,
+  was read twice and every count doubled. A file whose name contains
+  square brackets could not be named at all. Matches of a pattern are
+  sorted, so runs without start times come in a stable order.
+* A barcode file in none of the layouts pycoQC reads (Guppy, Deepbinner, or
+  plain `read_id` and `barcode` columns) raised `KeyError`; it now says
+  which layouts are understood.
+* Supplementary alignments were labelled `Suplementary` in the alignment
+  table and pie, and the categories came in whatever order the BAM showed
+  them, with colours handed out by position, so a category's colour changed
+  from run to run. Each category now has its own.
+* An `N` in an MD tag was not counted as a mismatch.
+* Run details such as a sample name holding `&` or `<` went into the HTML
+  page as markup: the template's name ends in `.j2`, which the escaping rule
+  did not match. Source file paths are escaped too, and the page is written
+  as UTF-8 whatever the locale.
+* A flat 2D density, as from a handful of identical reads, gave plotly a
+  contour step of zero.
+* A configuration naming something other than a plot, such as
+  `summary_stats_dict`, failed after calling it.
+* POD5 read ids repeated across files were dropped in silence, and POD5 or
+  FAST5 files holding no reads gave an empty summary rather than an error.
+
+**Changed**
+
+* The command line prints a one line `ERROR:` message and exits with status
+  1 for problems with the input, instead of a traceback. A converter's
+  worker sends back the message alone for such problems, and its traceback
+  only for a bug.
+* A plot that fails unexpectedly is reported as a warning and the rest of
+  the report is still written.
+* The per barcode boxplots are drawn from statistics computed by pycoQC
+  rather than from every sampled read, which went into the page four times:
+  two boxplots were 12 MB of a 100,000 read report. Outlier points are no
+  longer drawn. The channel map and the 2D densities are stored in single
+  precision. The Dorado run with a BAM went from a 51 MB report in 105 s to
+  12.7 MB in 17 s.
+* Importing pycoQC no longer changes the process it is imported into:
+  `FutureWarning` was silenced for every library, the converters configured
+  the root logger at INFO, switching on other libraries' debug output, and
+  set BLAS thread counts in the environment. The test suite now fails on a
+  pandas `FutureWarning` raised from pycoQC code.
+* The plotting module builds every three read set plot through the same
+  helpers, rather than five copies of the code choosing a read set and
+  building its buttons. Private helpers are no longer name mangled.
+* The HTML and PDF reports share the loop that runs the configured plots.
+* `check_arg` raises `pycoQCError` rather than a bare `Exception`. `head`
+  reads gzipped files, as its documentation said.
+
 ### 2026-10-20 — pycoqc-ng 3.1.0
 
 A report for runs that have not been basecalled, and a long list of
