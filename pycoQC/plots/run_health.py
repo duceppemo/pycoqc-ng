@@ -328,11 +328,13 @@ class RunHealth:
                            hoverinfo="x+y+z")]
 
         # tweak plot layout
+        menus = self._level_menu(prepared, "restyle")
         layout = go.Layout(
             plot_bgcolor="whitesmoke",
             width=width,
             height=height,
-            updatemenus=self._level_menu(prepared, "restyle"),
+            updatemenus=menus,
+            margin=self._menu_margin(menus),
             title=self._title(plot_title),
             xaxis={"title": "Channel id", "zeroline": False, "showline": False, "nticks": 20, "showgrid": False},
             yaxis={"title": "Experiment time (h)", "zeroline": False, "showline": False,
