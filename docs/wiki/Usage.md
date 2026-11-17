@@ -156,10 +156,17 @@ The converters are classes with the same arguments as their commands:
 ```python
 from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 
-Fastq_to_seq_summary(fastq_dir="fastq_dir/",
-                     seq_summary_fn="sequencing_summary.txt",
-                     threads=4)
+if __name__ == "__main__":
+    Fastq_to_seq_summary(fastq_dir="fastq_dir/",
+                         seq_summary_fn="sequencing_summary.txt",
+                         threads=4)
 ```
+
+The FASTQ and FAST5 converters start worker processes from a fork server,
+and each worker imports the calling script again as it starts. In a script,
+keep the call under `if __name__ == "__main__":`, or every worker runs the
+conversion again and the converter stops with an error saying so. Notebooks
+need no guard.
 
 In a notebook, `jhelp()` renders the signature and docstring as formatted Markdown
 (requires the `notebook` extra):

@@ -97,6 +97,9 @@ branch = true
 parallel = true
 concurrency = ["multiprocessing", "thread"]
 sigterm = true
+# Imported only by the fork server, which coverage does not follow; its
+# effect is tested from a subprocess.
+omit = ["*/pycoQC/_forkserver_preload.py"]
 
 [tool.coverage.paths]
 # Collapse an installed copy onto the source tree, so coverage measured

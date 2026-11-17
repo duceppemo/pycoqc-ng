@@ -90,9 +90,32 @@ fixes fell out of.
   than the one it loads, failing with "kaleido_scopes is not defined" and
   aborting the PDF report. The `pdf` extra now excludes that version, and
   each page gets three attempts in case of other transient browser failures.
+* The FASTQ and FAST5 converters forked their workers from a process already
+  running threads (OpenBLAS's pool, pyarrow's jemalloc, or whatever pytest
+  or a notebook had started), which can deadlock a child and which Python
+  3.12 warns about. Workers now start from a fork server, as is the Linux
+  default from Python 3.14. The server preloads pycoQC with those thread
+  pools held off, so it stays single threaded and the workers share its
+  imports: eight workers take about 100 MB rather than the 470 MB they
+  would importing pandas each. Starting the server adds under a second to
+  a conversion.
+* A converter worker that died without reporting, killed for memory or
+  failing as it started, left the parent waiting for ever. The parent now
+  checks its workers' exit codes and stops with an error, which for a
+  script missing its `if __name__ == "__main__":` guard says so.
 
 **Changed**
 
+* The FASTQ and FAST5 converters share one worker pipeline (lister, parsers,
+  writer) in `pycoQC/_pipeline.py`, rather than each carrying a copy of the
+  queues, error handling and cleanup. A converter now supplies only its work
+  items, how an item becomes records and any last change to the table.
+* `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One
+  process used to decompress every file and pass all of its text, 1.2 GB
+  for 180,000 reads, to the parsers, and adding parsers barely helped. Each
+  parser now reads its own files when there are at least as many files as
+  parsers, and blocks of lines are queued only when there are fewer. Parsers
+  send records to the writer in batches rather than one read at a time.
 * The command line prints a one line `ERROR:` message and exits with status
   1 for problems with the input, instead of a traceback. A converter's
   worker sends back the message alone for such problems, and its traceback

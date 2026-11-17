@@ -129,3 +129,42 @@ class TestTruncatedInput:
             parsed = FastqParser.read_entry(block, "pass")
         assert [r["read_id"] for r in parsed] == ["r1"]
         assert "Truncated" not in caplog.text
+
+
+class TestWorkItems:
+    """Parsers are handed whole files when there are enough to go round,
+    so reading and decompressing is spread over them, and blocks of lines
+    when there are fewer files than parsers, so no parser sits idle."""
+
+    @staticmethod
+    def converter(fastq_dir, parsers, reads_per_chunk=1000):
+        # The work items are worked out without starting any process.
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.fastq_dir = str(fastq_dir)
+        conv.max_fastq = 0
+        conv.threads = parsers
+        conv.reads_per_chunk = reads_per_chunk
+        return conv
+
+    def test_enough_files_are_handed_out_whole(self, multi_fastq_dir):
+        items = list(self.converter(multi_fastq_dir, parsers=3)._work_items())
+        assert len(items) == 3
+        assert all(chunk is None for _, _, chunk in items)
+
+    def test_too_few_files_are_split_into_blocks(self, multi_fastq_dir):
+        items = list(self.converter(multi_fastq_dir, parsers=4,
+                                    reads_per_chunk=3)._work_items())
+        assert all(chunk is not None for _, _, chunk in items)
+        reads = sum(len(chunk) for _, _, chunk in items) // 4
+        assert reads == 30
+        assert max(len(chunk) for _, _, chunk in items) == 3 * 4
+
+    def test_both_ways_give_the_same_summary(self, multi_fastq_dir, tmp_path):
+        out = {}
+        for threads in (3, 8):      # 1 parser: whole files; 6: blocks
+            fn = tmp_path / f"s{threads}.txt"
+            Fastq_to_seq_summary(fastq_dir=str(multi_fastq_dir),
+                                 seq_summary_fn=str(fn), threads=threads)
+            out[threads] = pd.read_csv(fn, sep="\t").sort_values("read_id") \
+                             .reset_index(drop=True)
+        pd.testing.assert_frame_equal(out[3], out[8])

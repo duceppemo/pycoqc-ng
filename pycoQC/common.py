@@ -8,6 +8,8 @@ import gzip
 import inspect
 from glob import glob
 import logging
+import multiprocessing as mp
+import queue
 import re
 import traceback
 from collections import Counter, OrderedDict
@@ -336,6 +338,61 @@ def recursive_file_gen(dir, ext):
         for fn in sorted(filenames):
             if fn.endswith(suffixes):
                 yield path.join(root, fn)
+
+
+def worker_context():
+    """The multiprocessing context the converters start their workers in.
+
+    Forking copies the parent's threads' locks in whatever state they are
+    in, and a child can deadlock on one another thread held at the time.
+    Python 3.12 warns about it whenever the parent has a thread running, as
+    it does under pytest, in a notebook or once pysam or a progress bar has
+    started one. A fork server forks from a clean single threaded process
+    instead, and is the Linux default from Python 3.14. Windows has no fork
+    server, so spawn there.
+
+    The server preloads pycoQC through _forkserver_preload, which keeps
+    numpy's BLAS from starting threads in it, so each worker starts with
+    pandas, numpy and h5py already imported, sharing their memory with the
+    others as a forked worker would. Left to its default, the server imports
+    the parent's main module, BLAS threads and all, and warns on every fork.
+    """
+    if "forkserver" not in mp.get_all_start_methods():
+        return mp.get_context("spawn")
+    ctx = mp.get_context("forkserver")
+    ctx.set_forkserver_preload(["pycoQC._forkserver_preload"])
+    return ctx
+
+
+def wait_for_workers(ps_list, error_q, poll=0.5):
+    """Wait for a converter's workers to finish, raising the first error.
+
+    Workers report failures, and the writer its completion, on error_q. A
+    worker that dies without reporting, killed for memory or failing as it
+    starts, used to leave the parent waiting on that queue for ever, so the
+    workers' exit codes are checked while it waits.
+    """
+    while True:
+        try:
+            message = error_q.get(timeout=poll)
+        except queue.Empty:
+            dead = [p for p in ps_list if p.exitcode not in (None, 0)]
+            if not dead:
+                continue
+            # A report may have been queued just before the exit.
+            try:
+                message = error_q.get(timeout=poll)
+            except queue.Empty:
+                raise pycoQCError(
+                    "A worker process stopped without reporting why (exit "
+                    "code {}). If the converter is called from a script, the "
+                    "call must sit under `if __name__ == \"__main__\":`, since "
+                    "each worker imports the script again as it starts. "
+                    "Otherwise the system may have run out of memory: try "
+                    "fewer threads.".format(dead[0].exitcode))
+        if message is None:
+            return
+        raise pycoQCError(message)
 
 
 def stop_processes(ps_list, timeout=5):

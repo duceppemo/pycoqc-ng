@@ -521,6 +521,99 @@ class TestSpawnedWorkers:
         assert "fields not found" in result.stderr
 
 
+class TestWorkersAreNotForked:
+    """Forking a process that has a thread running can deadlock the child
+    on a lock that thread held, and Python 3.12 warns about it. pytest, a
+    notebook or an earlier progress bar is enough to leave such a thread."""
+
+    def test_converters_use_a_fork_server_or_spawn(self):
+        from pycoQC.common import worker_context
+        assert worker_context().get_start_method() in ("forkserver", "spawn")
+
+    @pytest.mark.parametrize("converter", ["fastq", "fast5"])
+    def test_no_fork_warning_with_a_thread_running(self, converter, fastq_dir,
+                                                   basecalled_fast5_dir, tmp_path):
+        call = {
+            "fastq": "Fastq_to_seq_summary(fastq_dir=sys.argv[1], ",
+            "fast5": "Fast5_to_seq_summary(fast5_dir=sys.argv[1], ",
+        }[converter]
+        code = (
+            "import sys, threading\n"
+            "from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary\n"
+            "from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary\n"
+            "if __name__ == '__main__':\n"
+            "    stop = threading.Event()\n"
+            "    threading.Thread(target=stop.wait, daemon=True).start()\n"
+            "    " + call + "seq_summary_fn=sys.argv[2], threads=3)\n"
+            "    stop.set()\n")
+        script = tmp_path / "run.py"
+        script.write_text(code)
+        in_dir = fastq_dir if converter == "fastq" else basecalled_fast5_dir
+        out = tmp_path / "s.txt"
+        env = dict(os.environ, PYTHONPATH=str(REPO_ROOT))
+        result = subprocess.run(
+            # Not -W error: os.fork swallows the exception that would make.
+            [sys.executable, "-W", "always::DeprecationWarning", str(script),
+             str(in_dir), str(out)],
+            env=env, capture_output=True, text=True, timeout=300)
+        assert result.returncode == 0, result.stderr
+        assert "use of fork()" not in result.stderr
+        assert len(pd.read_csv(out, sep="\t")) > 0
+
+
+def _exits_silently(code):
+    import os
+    os._exit(code)
+
+
+class TestWorkersThatDieSilently:
+    """A worker that died without reporting, failing as it started or
+    killed for memory, left the parent waiting on the error queue for ever."""
+
+    def test_the_parent_raises_instead_of_waiting(self):
+        from pycoQC.common import wait_for_workers, worker_context
+        ctx = worker_context()
+        error_q = ctx.Queue()
+        ps = ctx.Process(target=_exits_silently, args=(3,))
+        ps.start()
+        try:
+            with pytest.raises(pycoQCError, match="exit code 3"):
+                wait_for_workers([ps], error_q, poll=0.1)
+        finally:
+            ps.join(10)
+
+    def test_a_script_without_a_main_guard_is_told_so(self, fastq_dir, tmp_path):
+        script = tmp_path / "unguarded.py"
+        script.write_text(
+            "import sys\n"
+            "from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary\n"
+            "Fastq_to_seq_summary(fastq_dir=sys.argv[1], seq_summary_fn=sys.argv[2],\n"
+            "                     threads=3)\n")
+        env = dict(os.environ, PYTHONPATH=str(REPO_ROOT))
+        result = subprocess.run(
+            [sys.executable, str(script), str(fastq_dir), str(tmp_path / "s.txt")],
+            env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode != 0
+        assert '__name__ == "__main__"' in result.stderr
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self/task"),
+                    reason="counts threads through /proc")
+class TestForkServerStaysSingleThreaded:
+    """The fork server preloads pycoQC so workers share it. Importing numpy
+    starts OpenBLAS threads and pandas 3 starts pyarrow's jemalloc thread,
+    and a server holding either warns on every fork."""
+
+    def test_preloading_starts_no_thread(self):
+        code = ("import os, pycoQC._forkserver_preload\n"
+                "print(len(os.listdir('/proc/self/task')))\n")
+        env = dict(os.environ, PYTHONPATH=str(REPO_ROOT))
+        result = subprocess.run([sys.executable, "-c", code], env=env,
+                                capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "1"
+
+
 class TestImportHasNoSideEffects:
     """Importing a converter configured the root logger at INFO, switching
     on every other library's chatter, set BLAS thread counts for the whole
