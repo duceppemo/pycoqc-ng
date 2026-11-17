@@ -78,10 +78,9 @@ class OverTime:
             plot_bgcolor="whitesmoke",
             width=width,
             height=height,
-            updatemenus=self._level_menu(prepared, "update", x=-0.08, y=0,
-                                         xanchor='right', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "update"),
             legend={"x": -0.05, "y": 1, "xanchor": 'right', "yanchor": 'top'},
-            title={"text": plot_title, "xref": "paper", "x": .5, "xanchor": "center"},
+            title=self._title(plot_title),
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
             yaxis={"title": "Count", "zeroline": False, "showline": True, "fixedrange": True,
                    "range": ld1["yaxis.range"]})
@@ -156,7 +155,7 @@ class OverTime:
             lab_x.append([x[idx], x[idx]])
             # The last markers sit close together on a long run, so drop
             # alternate labels down the line to keep them legible.
-            top = y_cum_max if n % 2 == 0 else y_cum_max * 0.82
+            top = y_cum_max if n % 2 == 0 else y_cum_max * 0.72
             lab_y.append([0, top])
 
         # make data dict
@@ -166,8 +165,10 @@ class OverTime:
             name=names,
             text=["", ""] + lab_text)
 
-        # Make layout dict = offset for labels on top
-        layout_dict = {"yaxis.range": [0, (y_cum_max + y_cum_max / 6) or 1]}
+        # Headroom for the labels on top, which run to three lines. A sixth
+        # of the range cut off their first line once the plot area had
+        # given up some of its height to the row of buttons.
+        layout_dict = {"yaxis.range": [0, (y_cum_max * 1.3) or 1]}
         return label, data_dict, layout_dict
 
     def read_len_over_time(
@@ -523,10 +524,9 @@ class OverTime:
             plot_bgcolor="whitesmoke",
             width=width,
             height=height,
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.07, y=0,
-                                         xanchor='right', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "restyle"),
             legend={"x": -0.07, "y": 1, "xanchor": 'right', "yanchor": 'top'},
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             yaxis={"title": y_lab, "zeroline": False, "type": y_scale, "showline": True,
                    "rangemode": 'nonnegative', "fixedrange": True},
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True, "rangemode": 'nonnegative'})

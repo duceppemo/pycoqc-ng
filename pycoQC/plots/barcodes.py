@@ -14,7 +14,7 @@ import plotly.graph_objs as go
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import LEVELS, PIE_MAX_BARCODES
+from pycoQC.plots.base import LEVELS, MENU_ROW, PIE_MAX_BARCODES
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Barcodes:
@@ -106,12 +106,10 @@ class Barcodes:
             buttons.append(dict(label=label, method="restyle",
                                 args=[{"visible": visible}]))
 
-        # Laid out in a row under the pie. Down the left hand side they sat
-        # on top of the legend, which grows with the number of barcodes.
-        updatemenus = [
-            dict(type="buttons", active=0, direction="right",
-                 x=0.2, y=-0.02, xanchor="center", yanchor="top",
-                 pad={"t": 4}, buttons=buttons)]
+        # In the row above the plot every plot's buttons use. Down the left
+        # hand side they sat on top of the legend, which grows with the
+        # number of barcodes.
+        updatemenus = [dict(MENU_ROW, active=0, buttons=buttons)]
 
         # tweak plot layout
         layout = go.Layout(
@@ -120,9 +118,7 @@ class Barcodes:
             updatemenus=updatemenus,
             width=width,
             height=height,
-            # Room under the plot for the row of buttons.
-            margin={"b": 70},
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+            title=self._title(plot_title))
 
         if not as_pie:
             # Bars carry their own labels, so the legend would only repeat
@@ -239,11 +235,10 @@ class Barcodes:
             hovermode="closest",
             plot_bgcolor="whitesmoke",
             legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.2, y=0,
-                                         xanchor='left', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "restyle"),
             width=width,
             height=height,
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             # In the order the rest of the report uses. Plotly's own
             # "category ascending" sorts as text, so barcode10 came between
             # barcode1 and barcode2, and Deepbinner's 10 between 1 and 2.
