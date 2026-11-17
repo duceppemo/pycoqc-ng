@@ -111,13 +111,15 @@ Shared options:
 |---|---|---|
 | `-f`, `--*_dir` | — | Input directory, searched recursively (required) |
 | `-s`, `--seq_summary_fn` | — | Output summary file (required) |
-| `-t`, `--threads` | 4 | Workers. FASTQ and FAST5 use one process to read, one to write and the rest to parse; BAM and POD5 use `threads - 2` threads in one process. The minimum is 3 either way |
+| `-t`, `--threads` | 4 | Processes: one lists the input files, one writes the summary and the rest parse, so the minimum is 3 and each thread above it adds a parser |
 | `--max_*` | 0 | Stop after this many input files. `0` means no limit |
 | `--fields` | see `--help` | Columns to keep (FASTQ, BAM and FAST5; POD5 has no such option) |
 | `--include_path` | off | Add a column with the absolute path of the source file |
 | `--verbose_level` | 0 | `2` chatty, `1` normal, `0` quiet |
 
-The output path must be in a directory that already exists.
+The output path must be in a directory that already exists. The summary is written only
+once every input file has been read: a conversion that fails leaves no summary behind,
+and an earlier one at the same path is kept.
 
 ## Barcode_split
 

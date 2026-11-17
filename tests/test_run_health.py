@@ -174,15 +174,28 @@ class TestActiveChannels:
         df = dorado.all_df
         t = df["start_time"].to_numpy(dtype=np.float64) / 3600
         n = int(round((t.max() - t.min()) / 4))
-        idx = np.clip(np.floor((t - t.min()) / 4).astype(int), 0, n - 1)
+        width = (t.max() - t.min()) / n
+        idx = np.clip(np.floor((t - t.min()) / width).astype(int), 0, n - 1)
         assert len(fig.data[0].y) == n == 12
-        np.testing.assert_allclose(fig.data[0].x, t.min() + 4 * (np.arange(n) + 0.5))
+        np.testing.assert_allclose(fig.data[0].x, t.min() + width * (np.arange(n) + 0.5))
         expected = [df["channel"][idx == i].nunique() for i in range(n)]
         assert list(fig.data[0].y) == expected
         for m in (1, 2, 3, 4):
             trace = next(tr for tr in fig.data if tr.name == "Mux {}".format(m))
             mask = df["mux"].to_numpy() == m
             assert list(trace.y) == [df["channel"][mask & (idx == i)].nunique() for i in range(n)]
+
+    def test_the_intervals_span_the_run_evenly(self, tmp_path):
+        """With fixed 1.5 hour intervals, a 23.4 hour run ended in a
+        sixteenth interval holding 0.9 hours of reads, drawn as a full one,
+        and its channel count read as a collapse."""
+        path = write_dorado_like(tmp_path / "s.txt", n=4000,
+                                 start_time=np.linspace(0, 23.4 * 3600, 4000))
+        x = plotter_for(path).active_channels_over_time().data[0].x
+        width = 23.4 / 16
+        assert len(x) == 16
+        np.testing.assert_allclose(np.diff(x), width)
+        assert x[-1] + width / 2 == pytest.approx(23.4)
 
     def test_a_short_run_still_gets_ten_intervals(self, tmp_path):
         path = write_dorado_like(tmp_path / "s.txt", n=300,

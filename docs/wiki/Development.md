@@ -27,8 +27,8 @@ pytest --cov --cov-report=term
 ```
 
 Fixtures in `tests/conftest.py` synthesise FASTQ and Dorado-style BAM so the suite needs
-no large inputs. Tests that need a real summary use the small one under
-`docs/pycoQC/data/`, and skip if it is absent.
+no large inputs. Tests that need a real summary use the Guppy and Albacore summaries in
+`tests/data/`.
 
 Coverage is configured for multiprocessing in `pyproject.toml`. The converters parse in
 worker processes, so without `concurrency = ["multiprocessing", "thread"]` that code
@@ -61,6 +61,8 @@ pycoQC/
     barcodes.py            counts and boxplots per barcode
     alignment.py           alignment outcomes, rates and coverage
   _pipeline.py             the worker processes the converters share
+  _forkserver_preload.py   what the converters' fork server imports
+  _worker_env.py           the thread caps the converters' workers start with
   pycoQC_report.py         assembles plots into HTML and JSON
   common.py                shared helpers, errors and logging
   *_to_seq_summary.py      the four converters
@@ -68,6 +70,7 @@ pycoQC/
   templates/               default config and Jinja2 template
 recipe/                    conda recipe, mirrored into bioconda
 docs/wiki/                 these pages
+docs/images/               diagrams and example figures for these pages
 tests/
 ```
 
@@ -76,6 +79,51 @@ Adding a plot means a method returning a plotly figure in the module of its fami
 in `templates/pycoQC_config.json`, or in `templates/pycoQC_config_signal.json` if it
 belongs in the shorter report for runs that have not been basecalled. A plot whose data
 is missing should raise `pycoQCError`, which the report catches and skips.
+
+## How the converters work
+
+![The converter pipeline](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/converter-pipeline.svg)
+
+All four converters run the same pipeline, `ConverterPipeline` in `pycoQC/_pipeline.py`:
+
+* the **lister** walks the input directory and queues the files on `in_q`, numbered in
+  the order they were listed;
+* `threads - 2` **parsers** each take a file, turn it into one row per read, and send
+  the rows on `out_q` in batches of up to 1,000, tagged with the file's number;
+* the **writer** puts the batches back in file order, drops repeated read ids where the
+  converter asks for that, writes the summary to `<summary>.partial`, and sends back a
+  report;
+* the **calling process** waits, then renames the `.partial` file to the summary and
+  logs the report, or deletes it and raises the first error any worker sent. A worker
+  that dies without sending anything is noticed from its exit code. Renaming only
+  after every worker has finished means a failed conversion never leaves a summary that
+  looks complete.
+
+The FASTQ converter is the one exception to "a file per item": a file well over an
+even share of the input (`WHOLE_FILE_SLACK` times the total over the parser count) is
+split by the lister into blocks of reads, so that one large file among small ones is
+still parsed by every parser.
+
+Workers start with the thread caps in `_worker_env.py`: OpenBLAS and pyarrow's
+jemalloc start threads as they load, which in a pool of parsers is idle threads per
+core in every worker. On Linux the workers start from a fork server that preloads
+pycoQC (`_forkserver_preload.py`); the caps keep it single threaded, which matters
+because forking a process that holds threads can deadlock the child. On macOS and
+Windows they start by spawn. Either way each worker imports the calling script again
+as it starts, which is why a script calling a converter needs an
+`if __name__ == "__main__":` guard.
+
+A converter is a subclass that sets `kind` and `extensions`, calls `_configure` with
+the arguments every converter takes, stores its own, and calls `_run`. It implements
+`_records(item, counts)`, yielding one dict per read for an input file, and optionally
+`_finalise(df, notes)` for a last change to the table. Strings appended to `notes` are
+logged as warnings by the calling process. `unique_read_ids` and `no_reads` adjust
+duplicate handling and the error for input holding no reads.
+
+The stage methods run in other processes and receive a pickled copy of the converter.
+Anything they need must be an instance attribute set before `_run`: a value changed on
+the class in the calling process does not reach them. Logging is the same: a worker's
+log lines go to its own stderr, so anything the user must see belongs in the report.
 
 ## CI
 

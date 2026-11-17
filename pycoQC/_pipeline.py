@@ -23,9 +23,11 @@ than only a worker's stderr.
 # Standard library imports
 import logging
 import multiprocessing as mp
+import os
 import queue
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from time import time
 
 # Third party imports
@@ -33,6 +35,7 @@ import pandas as pd
 from tqdm import tqdm
 
 # Local imports
+from pycoQC._worker_env import WORKER_ENV
 from pycoQC.common import (
     VERBOSE_LEVELS, check_converter_io, dict_to_str, format_worker_error,
     get_logger, pycoQCError, recursive_file_gen)
@@ -129,6 +132,27 @@ def stop_processes(ps_list, timeout=5):
             # ignored SIGTERM will not honour a second one either.
             proc.kill()
             proc.join(timeout)
+
+
+@contextmanager
+def _worker_environment():
+    """The worker settings in this process's environment while workers start.
+
+    A spawned worker, and the fork server, inherit the environment at the
+    moment they are started, and read it before they import anything. The
+    parent's own numpy loaded long ago, so it is unaffected, and its values
+    are put back as soon as the workers are running.
+    """
+    saved = {k: os.environ.get(k) for k in WORKER_ENV}
+    os.environ.update(WORKER_ENV)
+    try:
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def _new_counts():
@@ -254,12 +278,19 @@ class ConverterPipeline:
             target=self._writer, args=(out_q, error_q, counter_q)))
 
         self._log.info("Start processing {} files".format(self.kind))
+        finished = False
         try:
-            for proc in ps_list:
-                proc.start()
+            with _worker_environment():
+                for proc in ps_list:
+                    proc.start()
             report = wait_for_workers(ps_list, error_q)
             for proc in ps_list:
                 proc.join()
+            # Only a run every worker finished becomes the summary. The writer
+            # can finish while another worker is failing, and a summary
+            # missing that worker's files would pass for a complete one.
+            os.replace(self._partial_fn, self.seq_summary_fn)
+            finished = True
 
         except BaseException:
             self._log.info("\nAn error occurred. All processes were killed\n")
@@ -270,8 +301,15 @@ class ConverterPipeline:
             # running. Listing the exceptions to clean up after meant any
             # other kind left the whole pool alive.
             stop_processes(ps_list)
+            if not finished and os.path.exists(self._partial_fn):
+                os.remove(self._partial_fn)
 
         self._report(report)
+
+    @property
+    def _partial_fn(self):
+        # Beside the summary, so the rename stays on one file system.
+        return self.seq_summary_fn + ".partial"
 
     def _report(self, report):
         log = self._log
@@ -280,11 +318,16 @@ class ConverterPipeline:
         if counts["fields_found"] or counts["fields_not_found"]:
             log.info("fields found {}".format(dict_to_str(counts["fields_found"])))
             log.info("fields not found {}".format(dict_to_str(counts["fields_not_found"])))
-        if report["duplicates"]:
+        if report["duplicates_across_files"]:
             log.warning(
                 "WARNING: {:,} read id(s) appear in more than one {} file and "
                 "were written once. Check whether the directory holds the same "
-                "run twice.".format(report["duplicates"], self.kind))
+                "run twice.".format(report["duplicates_across_files"], self.kind))
+        if report["duplicates_within_files"]:
+            log.warning(
+                "WARNING: {:,} read id(s) appear more than once within one {} "
+                "file and were written once.".format(
+                    report["duplicates_within_files"], self.kind))
         for note in report["notes"]:
             log.warning(note)
         log.warning("Total reads: {} / Average speed: {} reads/s\n".format(
@@ -364,19 +407,28 @@ class ConverterPipeline:
                 raise pycoQCError(
                     "No reads found in the {} file(s). The files were read "
                     "but {}.".format(self.kind, self.no_reads))
+            # The work item each row came from, which for these converters
+            # is its file.
+            items = [n for n, _, batch in batches for _ in batch]
             df = pd.DataFrame(rows)
             del rows, batches
 
-            duplicates = 0
+            across = within = 0
             if self.unique_read_ids and "read_id" in df:
                 repeated = df.duplicated("read_id", keep="last")
-                duplicates = int(repeated.sum())
-                if duplicates:
+                if repeated.any():
+                    # A read twice in one file is a different problem from
+                    # a run present twice in the directory, and only the
+                    # second is worth pointing the user at their files for.
+                    within = int(pd.DataFrame(
+                        {"read_id": df["read_id"].to_numpy(), "item": items}
+                    ).duplicated().sum())
+                    across = int(repeated.sum()) - within
                     df = df[~repeated].reset_index(drop=True)
 
             notes = []
             df = self._finalise(df, notes)
-            df.to_csv(self.seq_summary_fn, sep="\t", index=False)
+            df.to_csv(self._partial_fn, sep="\t", index=False)
 
             counts = _new_counts()
             for _ in range(self.threads):
@@ -385,7 +437,8 @@ class ConverterPipeline:
 
             error_q.put(("done", {
                 "reads": len(df), "seconds": time() - t, "counts": counts,
-                "duplicates": duplicates, "notes": notes}))
+                "duplicates_across_files": across,
+                "duplicates_within_files": within, "notes": notes}))
 
         except Exception as E:
             error_q.put(("error", format_worker_error(E)))

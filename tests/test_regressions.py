@@ -21,6 +21,7 @@ import pytest
 
 from conftest import REPO_ROOT, _write_basecalled_fast5, _write_pod5
 from pycoQC.__main__ import main_pycoQC
+from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary
 from pycoQC.Barcode_split import barcode_split
 from pycoQC.common import (
     check_arg, expand_file_names, format_worker_error, head, pycoQCError)
@@ -612,6 +613,154 @@ class TestForkServerStaysSingleThreaded:
                                 capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "1"
+
+
+
+def _report_env(q):
+    import os
+    q.put(os.environ.get("OPENBLAS_NUM_THREADS"))
+
+
+def _write_bam(path, records):
+    """An unaligned BAM holding (read_id, seq, qual) records, in order."""
+    import pysam
+    header = {"HD": {"VN": "1.6", "SO": "unknown"}}
+    with pysam.AlignmentFile(str(path), "wb", header=header) as bam:
+        for read_id, seq, qual in records:
+            rec = pysam.AlignedSegment()
+            rec.query_name = read_id
+            rec.query_sequence = seq
+            rec.query_qualities = pysam.qualitystring_to_array(qual)
+            rec.flag = 4
+            bam.write(rec)
+
+
+class TestFailedConversionsWriteNothing:
+    """The writer saved the summary before every worker had finished, so a
+    run where one file failed left a summary missing that file's reads,
+    which a later report could take for a complete one."""
+
+    @pytest.fixture
+    def broken_dir(self, tmp_path, bam_dir):
+        import shutil
+        d = tmp_path / "in"
+        d.mkdir()
+        shutil.copy(bam_dir / "reads.bam", d / "a.bam")
+        (d / "b.bam").write_bytes(b"not a bam file at all")
+        return d
+
+    def test_no_summary_is_left_behind(self, broken_dir, tmp_path):
+        out = tmp_path / "s.txt"
+        with pytest.raises(pycoQCError):
+            Bam_to_seq_summary(bam_dir=str(broken_dir), seq_summary_fn=str(out),
+                               threads=4)
+        assert not out.exists()
+        assert not (tmp_path / "s.txt.partial").exists()
+
+    def test_an_earlier_summary_is_kept(self, broken_dir, tmp_path):
+        out = tmp_path / "s.txt"
+        out.write_text("earlier summary\n")
+        with pytest.raises(pycoQCError):
+            Bam_to_seq_summary(bam_dir=str(broken_dir), seq_summary_fn=str(out),
+                               threads=4)
+        assert out.read_text() == "earlier summary\n"
+
+    def test_a_clean_run_leaves_only_the_summary(self, bam_dir, tmp_path):
+        out = tmp_path / "s.txt"
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(out), threads=3)
+        assert out.exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["s.txt"]
+
+
+class TestRepeatedReadIds:
+    """Read ids repeated within one file were counted with those repeated
+    across files, under a warning about the directory holding a run twice."""
+
+    def test_repeats_across_files(self, reads, tmp_path, caplog):
+        d = tmp_path / "in"
+        d.mkdir()
+        _write_bam(d / "a.bam", reads[:20])
+        _write_bam(d / "b.bam", reads[:20])
+        with caplog.at_level(logging.WARNING):
+            Bam_to_seq_summary(bam_dir=str(d), seq_summary_fn=str(tmp_path / "s.txt"),
+                               threads=3)
+        assert "20 read id(s) appear in more than one bam file" in caplog.text
+        assert "within one" not in caplog.text
+        assert len(pd.read_csv(tmp_path / "s.txt", sep="\t")) == 20
+
+    def test_repeats_within_a_file(self, reads, tmp_path, caplog):
+        d = tmp_path / "in"
+        d.mkdir()
+        _write_bam(d / "a.bam", reads[:20] + reads[:5])
+        with caplog.at_level(logging.WARNING):
+            Bam_to_seq_summary(bam_dir=str(d), seq_summary_fn=str(tmp_path / "s.txt"),
+                               threads=3)
+        assert "5 read id(s) appear more than once within one bam file" in caplog.text
+        assert "more than one bam file" not in caplog.text
+        assert len(pd.read_csv(tmp_path / "s.txt", sep="\t")) == 20
+
+
+class TestMetricsFollowTheReadSets:
+    """The figures were cached on id(frame), and an id is reused once the
+    frame is freed, so a replaced read set could be given the old figures."""
+
+    def test_a_replaced_read_set_is_measured_again(self, guppy_summary):
+        plotter = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary), quiet=True),
+                              quiet=True)
+        assert plotter._metrics("pass")["reads"] == len(plotter.pass_df)
+        plotter.pass_df = plotter.pass_df.iloc[:10]
+        assert plotter._metrics("pass")["reads"] == 10
+
+
+class TestRecordsCarryOnlyWhatIsAsked:
+
+    def test_a_bam_record_has_no_path_unless_asked(self, bam_dir):
+        from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary as Bam
+        from pycoQC._pipeline import _new_counts
+        conv = Bam.__new__(Bam)
+        conv.in_dir = str(bam_dir)
+        for include_path in (False, True):
+            conv.include_path = include_path
+            record = next(conv._records(str(bam_dir / "reads.bam"), _new_counts()))
+            assert ("path" in record) is include_path
+
+    def test_blank_run_health_fields_count_as_not_found(self, fastq_dir):
+        """A Guppy style header carries no Dorado tags, and the four run
+        health fields were reported found, blank, for every read."""
+        from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary as Fq
+        from pycoQC._pipeline import _new_counts
+        conv = Fq.__new__(Fq)
+        conv.include_path = False
+        conv.reads_per_chunk = 1000
+        conv.fields = ("read_id", "duration", "end_reason")
+        counts = _new_counts()
+        n = sum(1 for _ in conv._records((str(fastq_dir / "reads.fastq.gz"), "pass", None),
+                                         counts))
+        assert counts["fields_found"]["read_id"] == n
+        assert counts["fields_not_found"]["duration"] == n
+        assert counts["fields_not_found"]["end_reason"] == n
+        assert counts["fields_found"]["duration"] == 0
+
+
+class TestWorkerThreadCaps:
+    """Spawned workers, on macOS and Windows, started with numpy's thread
+    pools uncapped: idle threads per core in every worker."""
+
+    @pytest.mark.parametrize("method", ["spawn", "worker_context"])
+    def test_workers_start_capped_and_the_parent_is_restored(self, method, monkeypatch):
+        import multiprocessing as mp
+        from pycoQC._pipeline import _worker_environment, worker_context
+        monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+        ctx = mp.get_context("spawn") if method == "spawn" else worker_context()
+        q = ctx.Queue()
+        with _worker_environment():
+            proc = ctx.Process(target=_report_env, args=(q,))
+            proc.start()
+        try:
+            assert q.get(timeout=120) == "1"
+        finally:
+            proc.join(30)
+        assert "OPENBLAS_NUM_THREADS" not in os.environ
 
 
 class TestImportHasNoSideEffects:

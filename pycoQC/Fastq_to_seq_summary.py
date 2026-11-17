@@ -190,7 +190,7 @@ class FastqParser(object):
         entry_dict[read_id]['passes_filtering'] = flag
         entry_dict[read_id]['flow_cell_id'] = flowcell
         entry_dict[read_id]['sample_id'] = sample_id
-        # Present when Dorado wrote its tags into the header (-T).
+        # Present when the header carries Dorado's tags, as samtools fastq -T writes them.
         entry_dict[read_id].update(run_health_fields(read_dict))
 
         return entry_dict
@@ -210,6 +210,10 @@ class Fastq_to_seq_summary(ConverterPipeline):
     # lines means a block can never end in the middle of a record, which
     # would drop that read.
     READS_PER_CHUNK = 1000
+
+    # How far over an even share of the input a file may be and still be
+    # handed to one parser whole.
+    WHOLE_FILE_SLACK = 1.25
 
     def __init__(self,
                  fastq_dir: str,
@@ -266,21 +270,24 @@ class Fastq_to_seq_summary(ConverterPipeline):
 
     #~~~~~~~~~~~~~~PIPELINE STAGES~~~~~~~~~~~~~~#
     def _work_items(self):
-        """Whole files when there are enough to go round, blocks of lines if not.
+        """Files small enough to be one parser's share whole, blocks of reads if not.
 
-        A parser handed a file path reads and decompresses it itself, so
-        that work is spread over every parser, and only the parsed records
-        cross between processes. With fewer files than parsers that would
-        leave parsers idle, and one large file would be parsed by one
-        process, so the lister splits the files into blocks of reads
-        instead. Each block is (path, flag, lines); a whole file has None
-        for its lines.
+        A parser handed a file path reads and decompresses it itself, so that
+        work is spread over every parser, and only the parsed records cross
+        between processes. A file larger than an even share of the input
+        would keep one parser busy while the others ran out of work, as one
+        large pass file among small fail files did, so the lister splits
+        such a file into blocks of reads for every parser to take from.
+        Each item is (path, flag, lines); a whole file has None for its lines.
         """
         files = list(self._input_files())
-        whole_files = len(files) >= self.threads
-        for fastq_fn in files:
+        sizes = [os.path.getsize(fn) for fn in files]
+        # A quarter over an even share is still taken whole, so files of
+        # about the same size are not split for being a little over average.
+        limit = self.WHOLE_FILE_SLACK * sum(sizes) / max(1, self.threads)
+        for fastq_fn, size in zip(files, sizes):
             flag = FastqParser.pass_fail_flag(fastq_fn, self.in_dir)
-            if whole_files:
+            if size <= limit:
                 yield fastq_fn, flag, None
                 continue
             for chunk in self._chunks(fastq_fn):
@@ -303,6 +310,11 @@ class Fastq_to_seq_summary(ConverterPipeline):
                 for field in self.fields:
                     if field in read_info_dict:
                         d[field] = read_info_dict[field]
+                    # A blank is written as one, but counted as not found:
+                    # the run health fields are always present, blank when
+                    # the header carries no Dorado tags, and counting those
+                    # as found hid that they were missing.
+                    if read_info_dict.get(field, "") not in ("", None):
                         counts["fields_found"][field] += 1
                     else:
                         counts["fields_not_found"][field] += 1

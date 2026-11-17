@@ -158,8 +158,9 @@ class RunHealth:
             hour and a half by default, and intervals that do not match that
             cycle catch one scan in some and two in others: on a real run,
             0.72 hour intervals swung by half the count from one to the next,
-            and 1.5 hour ones by a tenth. A run shorter than ten intervals is
-            divided into ten.
+            and 1.5 hour ones by a tenth. The length is adjusted so that a
+            whole number of equal intervals spans the run, and a run shorter
+            than ten intervals is divided into ten.
         * width
             With of the plotting area in pixel
         * height
@@ -183,7 +184,17 @@ class RunHealth:
             raise pycoQCError("No reads with both a channel and a start time to plot")
         span = float(t.max() - t.min())
         step = min(interval_hours, span / 10) if span > 0 else interval_hours
-        intervals = (float(t.min()), step, max(1, int(round(span / step))))
+        # Equal intervals that span the run exactly. Fixed length ones leave
+        # the end of the run over, and wherever it goes it distorts the last
+        # count: as an interval of its own, 0.9 hours of reads at the end of
+        # a 23.4 hour run were drawn as a 1.5 hour interval and read as a
+        # collapse; joined to the last one, the end of a 47.99 hour run made
+        # an 8 hour interval out of a 4 hour one. A run is at least ten
+        # intervals, so the length moves by at most a twentieth, and its
+        # drift against the mux scan cycle adds up to half an interval over
+        # the whole run.
+        n = max(1, int(round(span / step)))
+        intervals = (float(t.min()), span / n if span > 0 else step, n)
 
         prepared = [self._active_channels_data(level, muxes, n_channels, intervals)
                     for level in LEVELS]
@@ -215,7 +226,7 @@ class RunHealth:
                     "bgcolor": "rgba(255,255,255,0.7)"},
             title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
-            yaxis={"title": "Channels producing reads per {:g} h".format(intervals[1])
+            yaxis={"title": "Channels producing reads per {:.3g} h".format(intervals[1])
                    if intervals[1] >= 0.1 else "Channels producing reads",
                    "rangemode": "tozero",
                    "zeroline": False, "showline": True, "fixedrange": True})
@@ -241,9 +252,9 @@ class RunHealth:
             empty = [[] for _ in names]
             return label, dict(x=empty, y=empty, name=names)
 
-        # Each interval labelled by its centre; the end of the run that is
-        # left over joins the last one rather than being drawn as a short
-        # interval that looks like a collapse.
+        # Each interval labelled by its centre. The intervals span the run
+        # exactly, so only its very last read, at the closing edge, needs
+        # clipping into the last one.
         start, step, time_bins = intervals
         x = start + step * (np.arange(time_bins) + 0.5)
         t = df["start_time"].to_numpy(dtype=np.float64) / 3600

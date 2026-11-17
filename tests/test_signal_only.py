@@ -72,7 +72,7 @@ class TestParsing:
         assert signal_plotter.has_duration is True
 
     def test_a_basecalled_run_is_unaffected(self, tmp_path):
-        guppy = ("docs/pycoQC/data/"
+        guppy = ("tests/data/"
                  "Guppy-2.2.4-basecall-1D-DNA_sequencing_summary+barcode.txt.gz")
         parser = pycoQC_parse(summary_file=guppy, quiet=True)
         assert pycoQC_plot(parser, quiet=True).has_basecalls is True

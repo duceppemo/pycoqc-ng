@@ -25,6 +25,8 @@ original reports and adds support for the current Oxford Nanopore toolchain.
 * **FASTQ input** via `Fastq_to_seq_summary`, including **%GC metrics and plots**
 * Per-barcode **length and %GC boxplots**, and a basecall summary broken down
   by barcode
+* **Run health plots**: read end reasons, translocation speed and active channels
+  per mux over the run, from Dorado's read tags or a POD5
 * Runs on current dependencies: numpy 2.x, pandas 2.x and 3.x, plotly 5 to 7,
   pysam 0.22+, Python 3.9 to 3.13
 * A lightweight static **PDF report** alongside the interactive HTML one
@@ -124,7 +126,8 @@ The wiki is maintained in [`docs/wiki/`](docs/wiki) and published by a workflow,
 send documentation changes as pull requests against those files rather than editing
 the wiki directly.
 
-Example reports built from the bundled test data live in `docs/pycoQC/results/`.
+An example PDF report built from the bundled test data is in
+[`docs/examples/`](docs/examples/pycoQC_report_example.pdf).
 
 ## Citing
 

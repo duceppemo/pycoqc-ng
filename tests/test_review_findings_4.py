@@ -16,9 +16,9 @@ from pycoQC.common import pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import pycoQC_plot
 
-GUPPY_SUMMARY = ("docs/pycoQC/data/"
+GUPPY_SUMMARY = ("tests/data/"
                  "Guppy-2.2.4-basecall-1D-DNA_sequencing_summary+barcode.txt.gz")
-ALBACORE_SUMMARY = ("docs/pycoQC/data/"
+ALBACORE_SUMMARY = ("tests/data/"
                     "Albacore-2.1.10_basecall-1D-DNA_sequencing_summary.txt.gz")
 
 

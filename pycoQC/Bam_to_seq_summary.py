@@ -81,7 +81,8 @@ class Bam_to_seq_summary(ConverterPipeline):
     #~~~~~~~~~~~~~~PIPELINE STAGES~~~~~~~~~~~~~~#
     def _records(self, bam_file, counts):
         """One dict per primary record of a bam file."""
-        path = os.path.abspath(bam_file)
+        # Only carried through the pipeline when asked for.
+        path = os.path.abspath(bam_file) if self.include_path else None
         with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as fh:
             # Read groups are a property of the file, so parse them once
             # rather than re-parsing the header text for every read.
@@ -206,7 +207,8 @@ class Bam_to_seq_summary(ConverterPipeline):
                 # How the run went: the strand's time, why the read ended and
                 # which of the channel's pores it came from.
                 d.update(run_health_fields(bam_dict))
-                d['path'] = path
+                if path is not None:
+                    d['path'] = path
                 yield d
 
     def _finalise(self, df, notes):

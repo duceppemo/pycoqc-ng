@@ -115,7 +115,8 @@ def path_below(path, root):
 def run_health_fields(tags):
     """Duration, template duration, end reason and mux from Dorado's tags.
 
-    Dorado writes the same tags into a BAM and, with -T, into a FASTQ header:
+    Dorado writes these tags into a BAM, and samtools fastq -T copies them into
+    a FASTQ header:
     du, the read's duration in seconds; ns, its number of signal samples; ts,
     the samples trimmed from its start, which is the adapter; er, the reason
     it ended; and mx, the mux it was read on. The strand's own time is

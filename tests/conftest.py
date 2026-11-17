@@ -106,8 +106,8 @@ def bam_dir(tmp_path_factory, reads):
 
 @pytest.fixture(scope="session")
 def guppy_summary():
-    """A real (small) Guppy sequencing summary shipped with the docs."""
-    fn = REPO_ROOT / "docs/pycoQC/data/Guppy-basecall-1D-DNA_sequencing_summary.txt.gz"
+    """A real (small) Guppy sequencing summary, kept in tests/data."""
+    fn = REPO_ROOT / "tests/data/Guppy-basecall-1D-DNA_sequencing_summary.txt.gz"
     if not fn.exists():
         pytest.skip(f"test data not available: {fn}")
     return fn

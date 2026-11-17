@@ -56,6 +56,36 @@ class Pod5_to_seq_summary(ConverterPipeline):
     #~~~~~~~~~~~~~~PIPELINE STAGES~~~~~~~~~~~~~~#
     def _records(self, pod5_file, counts):
         """One dict per read of a pod5 file, created from fast5 or by MinKNOW."""
+        # Barcode, pass or fail and path are the file's, so they are worked
+        # out once rather than for each of its reads.
+        file_name = os.path.basename(pod5_file)
+        field_list = file_name.split('_')
+
+        # Barcode
+        if 'barcode' in file_name:
+            barcode = [i for i in field_list if 'barcode' in i][0]
+        elif 'unclassified' in file_name:
+            barcode = 'unclassified'
+        else:
+            # A run that was never demultiplexed has no barcode.
+            # Writing "skip" here invented one, and a report then
+            # showed every read assigned to a barcode called skip,
+            # which is also a real MinKNOW file name token.
+            barcode = ''
+
+        # Flag, matched on whole words so a path such as
+        # /data/failover/pod5_pass is not read as failing. pass is
+        # still tested first, so it wins if a name holds both.
+        if path_has_token(file_name, 'pass'):
+            flag = 'TRUE'
+        elif path_has_token(file_name, 'fail'):
+            flag = 'FALSE'
+        elif path_has_token(file_name, 'skip'):
+            flag = 'FALSE'
+        else:
+            flag = 'TRUE'  # For pod5 converted from fast5?
+        path = os.path.abspath(pod5_file) if self.include_path else None
+
         with p5.Reader(pod5_file) as reader:
             for read in reader.reads():
                 run_id = read.run_info.acquisition_id
@@ -80,34 +110,6 @@ class Pod5_to_seq_summary(ConverterPipeline):
                 software = read.run_info.software
                 read_number = read.read_number
 
-                # Info that might not be present
-                file_name = os.path.basename(pod5_file)
-                field_list = file_name.split('_')
-
-                # Barcode
-                if 'barcode' in file_name:
-                    barcode = [i for i in field_list if 'barcode' in i][0]
-                elif 'unclassified' in file_name:
-                    barcode = 'unclassified'
-                else:
-                    # A run that was never demultiplexed has no barcode.
-                    # Writing "skip" here invented one, and a report then
-                    # showed every read assigned to a barcode called skip,
-                    # which is also a real MinKNOW file name token.
-                    barcode = ''
-
-                # Flag, matched on whole words so a path such as
-                # /data/failover/pod5_pass is not read as failing. pass is
-                # still tested first, so it wins if a name holds both.
-                if path_has_token(file_name, 'pass'):
-                    flag = 'TRUE'
-                elif path_has_token(file_name, 'fail'):
-                    flag = 'FALSE'
-                elif path_has_token(file_name, 'skip'):
-                    flag = 'FALSE'
-                else:
-                    flag = 'TRUE'  # For pod5 converted from fast5?
-
                 d = {"read_id": read_id,
                      "run_id": run_id,
                      "channel": channel,
@@ -129,8 +131,9 @@ class Pod5_to_seq_summary(ConverterPipeline):
                      "sequencing_kit": sequencing_kit,
                      "device_id": device,
                      "software": software,
-                     "path": os.path.abspath(pod5_file),
                      }
+                if path is not None:
+                    d["path"] = path
                 yield d
 
     def _finalise(self, df, notes):
