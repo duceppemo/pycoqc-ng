@@ -102,9 +102,11 @@ All four converters run the same pipeline, `ConverterPipeline` in `pycoQC/_pipel
   (lister, then parsers, then writer), since the later ones are usually its
   consequences; once an error arrives the others get half a second, as a worker
   downstream of a failure may never exit on its own. Either way the directory is
-  removed. A worker that dies without sending anything is noticed from its exit code,
-  unless the writer has already reported, by which time every file has been read and
-  the summary written. Moving the file into place only after every worker has finished
+  removed. A worker reports any failure, not only an `Exception`: a lister stopped by
+  `SystemExit` still sends the parsers their stop signals, and the writer would report
+  a summary missing the files not yet listed. A worker that dies without sending
+  anything is noticed from its exit code, unless the writer has already reported, by
+  which time every file has been read and the summary written. Moving the file into place only after every worker has finished
   means a failed conversion never leaves a summary that looks complete.
 
 The FASTQ converter is the one exception to "a file per item": a file well over an
@@ -120,7 +122,9 @@ jemalloc start threads as they load, which in a pool of parsers is idle threads 
 core in every worker. On Linux the workers start from a fork server that preloads
 pycoQC (`_forkserver_preload.py`); the caps keep it single threaded, which matters
 because forking a process that holds threads can deadlock the child. On macOS and
-Windows they start by spawn. Either way each worker imports the calling script again
+Windows they start by spawn. The calling process waits on two handles per worker, its
+pipe and its exit, and before Python 3.12 Windows waits on at most 63, so there a run
+is held to 31 threads (`thread_limit`). Either way each worker imports the calling script again
 as it starts, which is why a script calling a converter needs an
 `if __name__ == "__main__":` guard.
 

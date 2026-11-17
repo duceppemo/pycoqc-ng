@@ -129,7 +129,9 @@ fixes fell out of.
   totals as the FASTQ and FAST5 converters in place of their own lines.
   Workers on every platform start with numpy's and pyarrow's thread pools
   capped at one thread, which the converter modules used to set for the
-  whole process on import.
+  whole process on import. On Windows before Python 3.12 a conversion uses
+  at most 31 threads, the most the calling process can wait on there, and
+  says so when it lowers `--threads`.
 * The figures in the run, basecall and alignment summary tables and in the
   JSON report are computed once per read set and shared, in place of a
   method per figure called again by each table and again by the report.
@@ -228,7 +230,9 @@ output rather than against the test fixtures.
   `Bam_to_seq_summary`, as was `--include_path` by `Pod5_to_seq_summary`;
   `--basecall_id` now says it has no meaning for those formats rather than
   being silently dropped. `Fast5_to_seq_summary`'s command line default
-  left out four run level fields its Python default includes.
+  left out four run level fields its Python default includes. A field named
+  twice in `--fields` is read and counted once; the BAM converter wrote it
+  as two columns.
 * FASTQ records were collected into a dict keyed by read id, so repeated
   ids merged, but only when they fell in the same 1,000 read block.
 * A bam or fastq directory holding no reads wrote an empty summary or

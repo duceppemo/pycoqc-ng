@@ -89,6 +89,29 @@ _SILENT_EXIT = (
     "threads.")
 
 
+# The parent waits on two handles per worker, its pipe and its exit. Before
+# Python 3.12, Windows waits on at most 63 at once, and a run of 32 or more
+# workers failed as soon as it started.
+WINDOWS_MAX_THREADS = 31
+
+
+def thread_limit(threads, platform=sys.platform, version=sys.version_info):
+    """The most threads this Python can wait on, or `threads` if lower."""
+    if platform == "win32" and version < (3, 12):
+        return min(threads, WINDOWS_MAX_THREADS)
+    return threads
+
+
+def name_start(name, limit=150):
+    """At most `limit` bytes of a file name, cut between two characters.
+
+    The file system's limit is 255 bytes, not characters: 150 characters
+    of Chinese or Japanese is 450 bytes.
+    """
+    encoding = sys.getfilesystemencoding()
+    return os.fsencode(name)[:limit].decode(encoding, "ignore")
+
+
 def wait_for_workers(workers, grace=0.5):
     """Wait for every worker to finish, then return the writer's report or
     raise the error that explains the failure.
@@ -118,7 +141,7 @@ def wait_for_workers(workers, grace=0.5):
     report = None
     errors = []
     deadline = None
-    pipes = {conn: proc for proc, conn in workers}
+    pipes = {conn for _, conn in workers}
     sentinels = {proc.sentinel: (proc, conn) for proc, conn in workers}
 
     def take(message):
@@ -137,7 +160,7 @@ def wait_for_workers(workers, grace=0.5):
             try:
                 take(conn.recv())
             except EOFError:
-                del pipes[conn]
+                pipes.discard(conn)
 
     while pipes or sentinels:
         timeout = None
@@ -152,7 +175,7 @@ def wait_for_workers(workers, grace=0.5):
                 try:
                     take(obj.recv())
                 except EOFError:
-                    del pipes[obj]
+                    pipes.discard(obj)
             elif obj in sentinels:
                 proc, conn = sentinels.pop(obj)
                 proc.join()
@@ -166,6 +189,20 @@ def wait_for_workers(workers, grace=0.5):
     if report is None:
         raise pycoQCError("The workers finished without writing a summary")
     return report
+
+
+def _send_error(status, stage, error):
+    """Report a worker's failure, then let anything but an Exception go on.
+
+    Only an Exception was caught. A lister stopped by SystemExit or
+    KeyboardInterrupt still sent the parsers their stop signals on its way
+    out, so the writer wrote and reported a summary missing the files not yet
+    listed. Its exit code came after the report, which is not looked at, and
+    the short summary was kept as complete.
+    """
+    status.send(("error", stage, format_worker_error(error)))
+    if not isinstance(error, Exception):
+        raise error
 
 
 def stop_processes(ps_list, timeout=5):
@@ -297,6 +334,13 @@ class ConverterPipeline:
         self.in_dir = in_dir
         self.seq_summary_fn = seq_summary_fn
         self.max_files = max_files
+        limit = thread_limit(threads)
+        if limit < threads:
+            self._log.warning(
+                "WARNING: Python {}.{} on Windows can run at most {} threads; "
+                "using {}. Python 3.12 and later have no such limit.".format(
+                    sys.version_info[0], sys.version_info[1], limit, limit))
+            threads = limit
         # One process lists the files and one writes the summary.
         self.threads = threads - 2
         self.basecall_id = basecall_id
@@ -311,23 +355,29 @@ class ConverterPipeline:
                 "ignored; it selects one of several basecall groups inside a "
                 "FAST5.".format(self.kind.upper()))
 
-    def _requested_fields(self, fields):
-        """--fields without path, which no input file carries.
+    def _requested_fields(self, fields, keep_path=False):
+        """--fields, each named once, and without path unless kept.
+
+        A field named twice was read and counted twice, and written as two
+        columns by the BAM converter.
 
         The path column is the file a read came from, written with
         --include_path. Asked for without it, each converter blamed the input:
         the BAM one said a BAM carries no such field, the FASTQ one counted it
         missing from every read, and the FAST5 one rejected it as invalid.
+        With --include_path, `keep_path` leaves it where it was listed, for a
+        converter that places the columns in the order asked for.
         """
         if fields is None:
             return None
-        fields = list(fields)
+        fields = list(dict.fromkeys(fields))
         if "path" in fields:
-            fields = [f for f in fields if f != "path"]
             if not self.include_path:
                 self._log.warning(
                     "WARNING: the path column is only written with "
                     "--include_path, so path is left out of the summary")
+            if not (keep_path and self.include_path):
+                fields.remove("path")
         return fields
 
     def _input_files(self):
@@ -374,21 +424,20 @@ class ConverterPipeline:
         counter_q = ctx.Queue()
 
         # Each worker reports on a pipe of its own, which the parent can
-        # sleep on together with the workers' exits.
-        pipes = []
+        # sleep on together with the workers' exits. A worker is paired with
+        # its pipe as it is made, and given its end as its first argument.
+        workers = []
 
-        def status_pipe():
+        def worker(target, *args):
             reader, writer = ctx.Pipe(duplex=False)
-            pipes.append((reader, writer))
-            return writer
+            workers.append((ctx.Process(target=target, args=(writer,) + args),
+                            reader, writer))
 
-        ps_list = [ctx.Process(target=self._lister, args=(in_q, status_pipe()))]
+        worker(self._lister, in_q)
         for i in range(self.threads):
-            ps_list.append(ctx.Process(
-                target=self._parser,
-                args=(in_q, out_q, status_pipe(), counter_q, i)))
-        ps_list.append(ctx.Process(
-            target=self._writer, args=(out_q, status_pipe(), counter_q)))
+            worker(self._parser, in_q, out_q, counter_q, i)
+        worker(self._writer, out_q, counter_q)
+        ps_list = [proc for proc, _, _ in workers]
 
         self._log.info("Start processing {} files".format(self.kind))
         staging = None
@@ -404,7 +453,8 @@ class ConverterPipeline:
             directory, name = os.path.split(os.path.abspath(self.seq_summary_fn))
             # Only the start of a long name, which with the suffix and the
             # random part must still fit a file system's 255 byte limit.
-            staging = tempfile.mkdtemp(prefix=name[:150] + ".pycoqc-tmp-", dir=directory)
+            staging = tempfile.mkdtemp(prefix=name_start(name) + ".pycoqc-tmp-",
+                                       dir=directory)
             self._partial_fn = os.path.join(staging, name)
 
             with _worker_environment():
@@ -413,10 +463,10 @@ class ConverterPipeline:
             # The workers hold their own ends now. Closing the parent's
             # copies is what lets a pipe report its end once its worker has
             # exited.
-            for _, writer in pipes:
+            for _, _, writer in workers:
                 writer.close()
             report = wait_for_workers(
-                [(proc, reader) for proc, (reader, _) in zip(ps_list, pipes)])
+                [(proc, reader) for proc, reader, _ in workers])
             for proc in ps_list:
                 proc.join()
             # Only a run every worker finished becomes the summary. The writer
@@ -436,7 +486,7 @@ class ConverterPipeline:
             # running. Listing the exceptions to clean up after meant any
             # other kind left the whole pool alive.
             stop_processes(ps_list)
-            for reader, writer in pipes:
+            for _, reader, writer in workers:
                 reader.close()
                 writer.close()
             if staging is not None:
@@ -475,7 +525,7 @@ class ConverterPipeline:
         # A worker starts with fresh loggers rather than the parent's.
         return get_logger(type(self).__module__, level=self.log_level)
 
-    def _lister(self, in_q, status):
+    def _lister(self, status, in_q):
         """Queue the numbered work items, then one stop signal per parser."""
         log = self._start_worker()
         try:
@@ -483,13 +533,13 @@ class ConverterPipeline:
             for n, item in enumerate(self._work_items(), 1):
                 in_q.put((n, item))
             log.debug("[LISTER] Queued {} work items".format(n))
-        except Exception as E:
-            status.send(("error", LISTER, format_worker_error(E)))
+        except BaseException as E:
+            _send_error(status, LISTER, E)
         finally:
             for _ in range(self.threads):
                 in_q.put(None)
 
-    def _parser(self, in_q, out_q, status, counter_q, worker_id):
+    def _parser(self, status, in_q, out_q, counter_q, worker_id):
         """Turn work items into batches of records for the writer.
 
         Each batch carries its item's number and its own place within the
@@ -518,12 +568,12 @@ class ConverterPipeline:
                 if batch:
                     out_q.put((n, part, source, batch))
             counter_q.put(counts)
-        except Exception as E:
-            status.send(("error", PARSER, format_worker_error(E)))
+        except BaseException as E:
+            _send_error(status, PARSER, E)
         finally:
             out_q.put(None)
 
-    def _writer(self, out_q, status, counter_q):
+    def _writer(self, status, out_q, counter_q):
         """Collect every record, write the summary and send back a report."""
         log = self._start_worker()
         t = time()
@@ -580,5 +630,5 @@ class ConverterPipeline:
                 "duplicates_across_files": across,
                 "duplicates_within_files": within, "notes": notes}))
 
-        except Exception as E:
-            status.send(("error", WRITER, format_worker_error(E)))
+        except BaseException as E:
+            _send_error(status, WRITER, E)
