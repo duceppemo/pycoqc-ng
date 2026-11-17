@@ -859,6 +859,11 @@ class _ForwardingFastq(Fastq_to_seq_summary):
         super().__init__(*args, **kwargs)
 
 
+class _TwoFieldFastq(Fastq_to_seq_summary):
+    """A subclass with a default of its own."""
+    DEFAULT_FIELDS = ("read_id", "channel")
+
+
 class _ExitingLister(Fastq_to_seq_summary):
     """Lists one file, then is stopped by something that is not an
     Exception. A class of its own per exception: a worker re-imports this
@@ -1194,6 +1199,28 @@ class TestRecordsCarryOnlyWhatIsAsked:
                          fields=[])
         assert (list(pd.read_csv(empty, sep="\t").columns)
                 == list(pd.read_csv(every, sep="\t").columns))
+
+    def test_an_array_of_fields_is_a_field_list(self, fastq_dir, tmp_path):
+        """`not fields` asked for an array's truth value, which raises."""
+        out = tmp_path / "s.txt"
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3,
+                             fields=np.array(["read_id", "channel"]))
+        assert list(pd.read_csv(out, sep="\t").columns) == ["read_id", "channel"]
+
+    @pytest.mark.parametrize("fields", [None, []])
+    def test_a_subclass_default_is_its_own(self, fields, fastq_dir, tmp_path):
+        """The default was both the signature's and DEFAULT_FIELDS, and a
+        subclass changing one got the other."""
+        out = tmp_path / "s.txt"
+        _TwoFieldFastq(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3,
+                       fields=fields)
+        assert list(pd.read_csv(out, sep="\t").columns) == ["read_id", "channel"]
+
+    @pytest.mark.parametrize("converter", [Fastq_to_seq_summary, Fast5_to_seq_summary,
+                                           Bam_to_seq_summary])
+    def test_default_fields_have_one_source(self, converter):
+        import inspect
+        assert inspect.signature(converter).parameters["fields"].default is None
 
     @pytest.mark.parametrize("converter", ["fastq", "bam"])
     def test_path_alone_without_include_path_is_the_read_ids(
