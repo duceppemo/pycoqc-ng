@@ -215,6 +215,11 @@ class Fastq_to_seq_summary(ConverterPipeline):
     # handed to one parser whole.
     WHOLE_FILE_SLACK = 1.25
 
+    # How many times larger a gzipped FASTQ is once decompressed, to weigh
+    # it against plain files: 2.2 to 2.9 on Dorado output, whose quality
+    # strings compress poorly.
+    GZIP_RATIO = 2.5
+
     def __init__(self,
                  fastq_dir: str,
                  seq_summary_fn: str,
@@ -281,9 +286,17 @@ class Fastq_to_seq_summary(ConverterPipeline):
         Each item is (path, flag, lines); a whole file has None for its lines.
         """
         files = list(self._input_files())
-        sizes = [os.path.getsize(fn) for fn in files]
+        # The work in a file is its reads, so a gzipped file is weighed by
+        # roughly what it holds rather than what it takes on disk.
+        sizes = [os.path.getsize(fn) * (self.GZIP_RATIO if fn.endswith(".gz") else 1)
+                 for fn in files]
         # A quarter over an even share is still taken whole, so files of
         # about the same size are not split for being a little over average.
+        # That leaves a parser idle when there are a few files fewer than
+        # parsers, and it is the cheaper choice: a split file is read and
+        # decompressed by the lister alone, and on a 180,000 read benchmark
+        # that one process took 8.9 s for the whole input, against about
+        # 4.7 s for a parser to take a quarter of it whole.
         limit = self.WHOLE_FILE_SLACK * sum(sizes) / max(1, self.threads)
         for fastq_fn, size in zip(files, sizes):
             flag = FastqParser.pass_fail_flag(fastq_fn, self.in_dir)
@@ -292,6 +305,9 @@ class Fastq_to_seq_summary(ConverterPipeline):
                 continue
             for chunk in self._chunks(fastq_fn):
                 yield fastq_fn, flag, chunk
+
+    def _item_file(self, item):
+        return item[0]
 
     def _chunks(self, fastq_fn):
         # Counted in reads rather than lines, so a block never ends in the

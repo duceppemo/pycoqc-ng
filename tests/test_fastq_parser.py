@@ -179,6 +179,24 @@ class TestWorkItems:
         assert whole == ["small_0.fastq.gz", "small_1.fastq.gz", "small_2.fastq.gz"]
         assert split == {"big.fastq.gz"}
 
+    def test_a_gzipped_file_is_weighed_by_what_it_holds(self, reads, tmp_path,
+                                                        monkeypatch):
+        """On-disk sizes made a gzipped file among plain ones look a fraction
+        of its real work, so it went to one parser whole."""
+        with gzip.open(tmp_path / "packed.fastq.gz", "wt") as fh:
+            for read_id, seq, qual in reads[:20]:
+                fh.write(f"@{read_id} ch=1\n{seq}\n+\n{qual}\n")
+        for n in range(3):
+            (tmp_path / f"plain_{n}.fastq").write_text(
+                "".join(f"@{r}_{n} ch=1\n{s}\n+\n{q}\n" for r, s, q in reads[:5]))
+        # Equal on disk: unweighted, every file is within 1.25 x 4000 / 4.
+        monkeypatch.setattr(os.path, "getsize", lambda fn: 1000)
+        items = list(self.converter(tmp_path, parsers=4, reads_per_chunk=5)._work_items())
+        split = {os.path.basename(fn) for fn, _, chunk in items if chunk is not None}
+        whole = {os.path.basename(fn) for fn, _, chunk in items if chunk is None}
+        assert split == {"packed.fastq.gz"}
+        assert whole == {"plain_0.fastq", "plain_1.fastq", "plain_2.fastq"}
+
     def test_both_ways_give_the_same_summary(self, multi_fastq_dir, tmp_path):
         out = {}
         for threads in (3, 8):      # 1 parser: whole files; 6: blocks

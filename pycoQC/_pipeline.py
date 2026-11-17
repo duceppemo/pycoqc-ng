@@ -25,7 +25,10 @@ import logging
 import multiprocessing as mp
 import os
 import queue
+import shutil
 import sys
+import tempfile
+import threading
 from collections import Counter
 from contextlib import contextmanager
 from time import time
@@ -134,6 +137,12 @@ def stop_processes(ps_list, timeout=5):
             proc.join(timeout)
 
 
+# Held while the worker settings are in the environment, so that two
+# conversions started from threads of one process cannot interleave their
+# save and restore, which could leave the settings in the parent for good.
+_ENV_LOCK = threading.Lock()
+
+
 @contextmanager
 def _worker_environment():
     """The worker settings in this process's environment while workers start.
@@ -141,18 +150,37 @@ def _worker_environment():
     A spawned worker, and the fork server, inherit the environment at the
     moment they are started, and read it before they import anything. The
     parent's own numpy loaded long ago, so it is unaffected, and its values
-    are put back as soon as the workers are running.
+    are put back as soon as the workers are running. A subprocess another
+    thread starts in that window inherits them too.
     """
-    saved = {k: os.environ.get(k) for k in WORKER_ENV}
-    os.environ.update(WORKER_ENV)
-    try:
-        yield
-    finally:
-        for key, value in saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+    with _ENV_LOCK:
+        saved = {k: os.environ.get(k) for k in WORKER_ENV}
+        os.environ.update(WORKER_ENV)
+        try:
+            yield
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def _queued_error(error_q, timeout=0.1):
+    """An error left on the queue once every worker has exited, or None.
+
+    The writer's report can reach the parent before another worker's error
+    does: each process writes to a queue from a thread of its own, so the
+    order of messages from two processes is not fixed. Once the workers
+    have exited, everything they sent is in the pipe.
+    """
+    while True:
+        try:
+            kind, payload = error_q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if kind == "error":
+            return payload
 
 
 def _new_counts():
@@ -256,6 +284,11 @@ class ConverterPipeline:
     def _finalise(self, df, notes):
         return df
 
+    def _item_file(self, item):
+        """The input file a work item comes from. Items are files unless a
+        converter splits them, as the FASTQ one does."""
+        return item
+
     #~~~~~~~~~~~~~~PARENT~~~~~~~~~~~~~~#
     @property
     def _log(self):
@@ -277,8 +310,17 @@ class ConverterPipeline:
         ps_list.append(ctx.Process(
             target=self._writer, args=(out_q, error_q, counter_q)))
 
+        # The writer writes the summary under its own name, so that pandas
+        # infers its compression and, for a zip or gzip, the name stored in
+        # it, as before; but into a directory of this run's own beside it, so
+        # that nothing of the user's is touched. It takes the summary's place
+        # only once every worker has finished cleanly. Set before the workers
+        # start, which receive a copy of it.
+        directory, name = os.path.split(os.path.abspath(self.seq_summary_fn))
+        staging = tempfile.mkdtemp(prefix=".pycoqc-", dir=directory)
+        self._partial_fn = os.path.join(staging, name)
+
         self._log.info("Start processing {} files".format(self.kind))
-        finished = False
         try:
             with _worker_environment():
                 for proc in ps_list:
@@ -286,11 +328,13 @@ class ConverterPipeline:
             report = wait_for_workers(ps_list, error_q)
             for proc in ps_list:
                 proc.join()
+            late = _queued_error(error_q)
+            if late is not None:
+                raise pycoQCError(late)
             # Only a run every worker finished becomes the summary. The writer
             # can finish while another worker is failing, and a summary
             # missing that worker's files would pass for a complete one.
             os.replace(self._partial_fn, self.seq_summary_fn)
-            finished = True
 
         except BaseException:
             self._log.info("\nAn error occurred. All processes were killed\n")
@@ -301,15 +345,9 @@ class ConverterPipeline:
             # running. Listing the exceptions to clean up after meant any
             # other kind left the whole pool alive.
             stop_processes(ps_list)
-            if not finished and os.path.exists(self._partial_fn):
-                os.remove(self._partial_fn)
+            shutil.rmtree(staging, ignore_errors=True)
 
         self._report(report)
-
-    @property
-    def _partial_fn(self):
-        # Beside the summary, so the rename stays on one file system.
-        return self.seq_summary_fn + ".partial"
 
     def _report(self, report):
         log = self._log
@@ -364,6 +402,7 @@ class ConverterPipeline:
         try:
             counts = _new_counts()
             for n, item in iter(in_q.get, None):
+                source = self._item_file(item)
                 part = 0
                 batch = []
                 for record in self._records(item, counts):
@@ -373,11 +412,11 @@ class ConverterPipeline:
                     counts["overall"]["valid reads"] += 1
                     batch.append(record)
                     if len(batch) >= self.RECORDS_PER_BATCH:
-                        out_q.put((n, part, batch))
+                        out_q.put((n, part, source, batch))
                         part += 1
                         batch = []
                 if batch:
-                    out_q.put((n, part, batch))
+                    out_q.put((n, part, source, batch))
             counter_q.put(counts)
         except Exception as E:
             error_q.put(("error", format_worker_error(E)))
@@ -395,21 +434,21 @@ class ConverterPipeline:
                 for _ in range(self.threads):
                     for batch in iter(out_q.get, None):
                         batches.append(batch)
-                        pbar.update(len(batch[2]))
+                        pbar.update(len(batch[3]))
 
             # Files holding no reads used to give an empty summary, which
             # pycoQC then rejected with a message about the summary rather
             # than about the input files.
             log.debug("[WRITER] Write data to file")
             batches.sort(key=lambda b: (b[0], b[1]))
-            rows = [record for _, _, batch in batches for record in batch]
+            rows = [record for _, _, _, batch in batches for record in batch]
             if not rows:
                 raise pycoQCError(
                     "No reads found in the {} file(s). The files were read "
                     "but {}.".format(self.kind, self.no_reads))
-            # The work item each row came from, which for these converters
-            # is its file.
-            items = [n for n, _, batch in batches for _ in batch]
+            # The file each row came from, which a split file shares between
+            # several work items.
+            sources = [source for _, _, source, batch in batches for _ in batch]
             df = pd.DataFrame(rows)
             del rows, batches
 
@@ -421,7 +460,7 @@ class ConverterPipeline:
                     # a run present twice in the directory, and only the
                     # second is worth pointing the user at their files for.
                     within = int(pd.DataFrame(
-                        {"read_id": df["read_id"].to_numpy(), "item": items}
+                        {"read_id": df["read_id"].to_numpy(), "source": sources}
                     ).duplicated().sum())
                     across = int(repeated.sum()) - within
                     df = df[~repeated].reset_index(drop=True)

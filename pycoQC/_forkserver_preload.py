@@ -7,9 +7,11 @@ and risks the deadlock it was meant to avoid, and two imports start threads
 of their own: OpenBLAS starts a pool as soon as numpy loads, and the
 jemalloc bundled with pyarrow, which pandas 3 loads, starts a background
 thread. Settling both here, before either is imported, keeps the server
-single threaded. Only the server and its workers see these settings; the
-parent's environment is untouched, and the workers parse text and HDF5,
-not linear algebra.
+single threaded. The settings are in _worker_env.WORKER_ENV, and the
+parent also holds them in its environment, for a moment, while it starts
+the server and the workers (see _pipeline._worker_environment); its own
+numpy loaded long before, so its thread pools are unaffected. The workers
+parse text and HDF5, not linear algebra.
 """
 
 import importlib

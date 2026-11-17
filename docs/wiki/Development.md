@@ -91,18 +91,23 @@ All four converters run the same pipeline, `ConverterPipeline` in `pycoQC/_pipel
 * `threads - 2` **parsers** each take a file, turn it into one row per read, and send
   the rows on `out_q` in batches of up to 1,000, tagged with the file's number;
 * the **writer** puts the batches back in file order, drops repeated read ids where the
-  converter asks for that, writes the summary to `<summary>.partial`, and sends back a
-  report;
-* the **calling process** waits, then renames the `.partial` file to the summary and
-  logs the report, or deletes it and raises the first error any worker sent. A worker
-  that dies without sending anything is noticed from its exit code. Renaming only
-  after every worker has finished means a failed conversion never leaves a summary that
+  converter asks for that, writes the summary under its own name in a directory of
+  this run's own beside it (`.pycoqc-<random>/`), so compression is still inferred from
+  the name, and sends back a report;
+* the **calling process** waits for every worker to exit, checks once more that none
+  sent an error, then moves the file into place and logs the report. Otherwise it
+  raises the first error. Either way the directory is removed. A worker that
+  dies without sending anything is noticed from its exit code. Renaming only after
+  every worker has finished means a failed conversion never leaves a summary that
   looks complete.
 
 The FASTQ converter is the one exception to "a file per item": a file well over an
-even share of the input (`WHOLE_FILE_SLACK` times the total over the parser count) is
-split by the lister into blocks of reads, so that one large file among small ones is
-still parsed by every parser.
+even share of the input (`WHOLE_FILE_SLACK` times the total over the parser count, with
+gzipped files counted at `GZIP_RATIO` times their size on disk) is split by the lister
+into blocks of reads, so that one large file among small ones is still parsed by every
+parser. Files of about the same size are not split even when there are fewer of them
+than parsers: the lister reads a split file alone, and that costs more than an idle
+parser. Repeated read ids are told apart by file (`_item_file`), not by work item.
 
 Workers start with the thread caps in `_worker_env.py`: OpenBLAS and pyarrow's
 jemalloc start threads as they load, which in a pool of parsers is idle threads per

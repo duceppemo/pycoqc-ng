@@ -26,6 +26,7 @@ from pycoQC.Barcode_split import barcode_split
 from pycoQC.common import (
     check_arg, expand_file_names, format_worker_error, head, pycoQCError)
 from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary
+from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 from pycoQC.Pod5_to_seq_summary import Pod5_to_seq_summary
 from pycoQC.pycoQC_parse import pycoQC_parse
 from pycoQC.pycoQC_plot import COVERAGE_MAX_LABELLED_REFS, pycoQC_plot
@@ -616,6 +617,20 @@ class TestForkServerStaysSingleThreaded:
 
 
 
+class _LateListerFailure(Fastq_to_seq_summary):
+    """Lists every file, then fails: the writer finishes all the same."""
+
+    def _work_items(self):
+        yield from super()._work_items()
+        raise pycoQCError("listing failed after the last file")
+
+
+class _UniqueFastq(Fastq_to_seq_summary):
+    """The FASTQ converter dropping repeated read ids, in blocks of 3."""
+    unique_read_ids = True
+    READS_PER_CHUNK = 3
+
+
 def _report_env(q):
     import os
     q.put(os.environ.get("OPENBLAS_NUM_THREADS"))
@@ -655,7 +670,7 @@ class TestFailedConversionsWriteNothing:
             Bam_to_seq_summary(bam_dir=str(broken_dir), seq_summary_fn=str(out),
                                threads=4)
         assert not out.exists()
-        assert not (tmp_path / "s.txt.partial").exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["in"]
 
     def test_an_earlier_summary_is_kept(self, broken_dir, tmp_path):
         out = tmp_path / "s.txt"
@@ -664,6 +679,38 @@ class TestFailedConversionsWriteNothing:
             Bam_to_seq_summary(bam_dir=str(broken_dir), seq_summary_fn=str(out),
                                threads=4)
         assert out.read_text() == "earlier summary\n"
+
+    def test_a_file_of_the_users_named_like_the_temporary_one_is_kept(
+            self, broken_dir, tmp_path):
+        """The temporary file was <summary>.partial, and a failed run deleted
+        whatever had that name, whether or not the run had written it."""
+        mine = tmp_path / "s.txt.partial"
+        mine.write_text("mine\n")
+        with pytest.raises(pycoQCError):
+            Bam_to_seq_summary(bam_dir=str(broken_dir),
+                               seq_summary_fn=str(tmp_path / "s.txt"), threads=4)
+        assert mine.read_text() == "mine\n"
+
+    def test_an_error_after_the_writer_finished_still_fails(self, fastq_dir, tmp_path):
+        """The writer's report could reach the parent before an error the
+        lister sent first, and the summary was then published."""
+        out = tmp_path / "s.txt"
+        with pytest.raises(pycoQCError, match="listing failed after the last file"):
+            _LateListerFailure(fastq_dir=str(fastq_dir), seq_summary_fn=str(out),
+                               threads=3)
+        assert not out.exists()
+
+    @pytest.mark.parametrize("suffix", [".gz", ".bz2", ".xz", ".zip"])
+    def test_a_compressed_summary_is_compressed(self, suffix, fastq_dir, tmp_path):
+        """The summary is first written under a temporary name, which gave
+        pandas no extension to infer compression from: a summary.txt.gz held
+        plain text, and pycoQC could not read it."""
+        out = tmp_path / ("s.txt" + suffix)
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3)
+        if suffix == ".gz":
+            assert out.read_bytes()[:2] == b"\x1f\x8b"
+        assert len(pd.read_csv(out, sep="\t")) == 200
+        assert sorted(p.name for p in tmp_path.iterdir()) == [out.name]
 
     def test_a_clean_run_leaves_only_the_summary(self, bam_dir, tmp_path):
         out = tmp_path / "s.txt"
@@ -688,6 +735,23 @@ class TestRepeatedReadIds:
         assert "within one" not in caplog.text
         assert len(pd.read_csv(tmp_path / "s.txt", sep="\t")) == 20
 
+    def test_repeats_within_a_split_file_are_within_one_file(self, reads, tmp_path,
+                                                              caplog):
+        """Repeats were told apart by work item, and the blocks of a split
+        file are several work items: a read twice in one file read as a
+        directory holding the run twice."""
+        d = tmp_path / "in"
+        d.mkdir()
+        with gzip.open(d / "reads.fastq.gz", "wt") as fh:
+            for read_id, seq, qual in reads[:10] + reads[:2]:
+                fh.write(f"@{read_id} ch=1\n{seq}\n+\n{qual}\n")
+        with caplog.at_level(logging.WARNING):
+            # Six parsers and one file: it is split into blocks of 3 reads.
+            _UniqueFastq(fastq_dir=str(d), seq_summary_fn=str(tmp_path / "s.txt"),
+                         threads=8)
+        assert "2 read id(s) appear more than once within one fastq file" in caplog.text
+        assert "more than one fastq file" not in caplog.text
+
     def test_repeats_within_a_file(self, reads, tmp_path, caplog):
         d = tmp_path / "in"
         d.mkdir()
@@ -703,6 +767,22 @@ class TestRepeatedReadIds:
 class TestMetricsFollowTheReadSets:
     """The figures were cached on id(frame), and an id is reused once the
     frame is freed, so a replaced read set could be given the old figures."""
+
+    def test_a_replaced_read_set_is_not_kept_in_memory(self, guppy_summary):
+        """The cache held each frame it measured, so a replaced read set
+        stayed in memory for as long as the plotter."""
+        import gc
+        import weakref
+        plotter = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary), quiet=True),
+                              quiet=True)
+        old = plotter.pass_df
+        ref = weakref.ref(old)
+        plotter._metrics("pass")
+        # A run this small is not sampled, so the sample is the frame too.
+        plotter.pass_df = plotter.pass_sample_df = old.iloc[:10].copy()
+        del old
+        gc.collect()
+        assert ref() is None
 
     def test_a_replaced_read_set_is_measured_again(self, guppy_summary):
         plotter = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary), quiet=True),
