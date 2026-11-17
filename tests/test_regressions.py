@@ -859,6 +859,17 @@ class _ForwardingFastq(Fastq_to_seq_summary):
         super().__init__(*args, **kwargs)
 
 
+class _UnrelatedWithFields:
+    """Not a converter: its fields=None means what it says."""
+    DEFAULT_FIELDS = ("a", "b")
+
+    def __init__(self, fields=None):
+        """
+        * fields
+            Anything.
+        """
+
+
 class _TwoFieldFastq(Fastq_to_seq_summary):
     """A subclass with a default of its own."""
     DEFAULT_FIELDS = ("read_id", "channel")
@@ -1216,18 +1227,50 @@ class TestRecordsCarryOnlyWhatIsAsked:
                        fields=fields)
         assert list(pd.read_csv(out, sep="\t").columns) == ["read_id", "channel"]
 
-    @pytest.mark.parametrize("fields, expected", [
-        ((f for f in ["read_id", "channel"]), ["read_id", "channel"]),
-        (map(str.strip, [" read_id", "channel "]), ["read_id", "channel"]),
-        ("channel", ["channel"])])
-    def test_any_iterable_of_names_is_a_field_list(self, fields, expected, fastq_dir,
+    # Factories, not the iterators themselves: one made at collection is
+    # used up by the first run of the test, and a rerun would get nothing.
+    @pytest.mark.parametrize("make_fields, expected", [
+        (lambda: (f for f in ["read_id", "channel"]), ["read_id", "channel"]),
+        (lambda: map(str.strip, [" read_id", "channel "]), ["read_id", "channel"]),
+        (lambda: "channel", ["channel"])])
+    def test_any_iterable_of_names_is_a_field_list(self, make_fields, expected, fastq_dir,
                                                    tmp_path):
         """len() of a generator raised, and a string was taken one letter per
         field: columns c, h, a, n, e and l, all of them missing."""
         out = tmp_path / "s.txt"
         Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3,
-                             fields=fields)
+                             fields=make_fields())
         assert list(pd.read_csv(out, sep="\t").columns) == expected
+
+    @pytest.mark.parametrize("fields", [
+        "", None, [], (), np.array([], dtype=str), pd.Index([])])
+    def test_no_names_is_the_default(self, fields):
+        """An empty string became one field named "", where it had been the
+        default."""
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        assert conv._requested_fields(fields) == list(Fastq_to_seq_summary.DEFAULT_FIELDS)
+
+    @pytest.mark.parametrize("fields", [
+        b"channel", np.array([b"read_id", b"channel"]), [None], ["read_id", ""],
+        [["read_id", "channel"]], {"channel", "run_id"}, frozenset(["channel"]), 5,
+        np.array("channel")])
+    def test_anything_but_names_is_refused(self, fields):
+        """str() of each item gave "b'read_id'" for bytes and "None" for None,
+        bytes were split into one field per byte, a set's columns came out
+        in a different order on each run, and a number raised a TypeError
+        that did not say which argument was wrong."""
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        with pytest.raises(pycoQCError, match="fields must be field names"):
+            conv._requested_fields(fields)
+
+    def test_names_are_plain_strings(self):
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        names = conv._requested_fields(np.array(["read_id", "channel"]))
+        assert names == ["read_id", "channel"]
+        assert all(type(name) is str for name in names)
 
     def test_an_array_of_fields_for_fast5_and_bam(self, basecalled_fast5_dir, bam_dir,
                                                   tmp_path):
@@ -1241,9 +1284,18 @@ class TestRecordsCarryOnlyWhatIsAsked:
 
     @pytest.mark.parametrize("converter", [Fastq_to_seq_summary, Fast5_to_seq_summary])
     def test_the_notebook_help_shows_the_default_fields(self, converter):
-        """With fields defaulting to None, jhelp showed None as the default."""
+        """With fields defaulting to None, jhelp showed None as the default,
+        and given the __init__ rather than the class it still did."""
         from pycoQC.common import make_arg_dict
-        assert make_arg_dict(converter)["fields"]["default"] == list(converter.DEFAULT_FIELDS)
+        for target in (converter, converter.__init__):
+            assert make_arg_dict(target)["fields"]["default"] == list(converter.DEFAULT_FIELDS)
+
+    def test_the_help_defaults_are_the_converters_to_give(self):
+        """The help looked for a parameter called fields and a DEFAULT_FIELDS
+        attribute on any class, so an unrelated class with both had its help
+        changed."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(_UnrelatedWithFields)["fields"]["default"] is None
 
     def test_the_bam_help_default_stays_every_field(self):
         from pycoQC.common import make_arg_dict

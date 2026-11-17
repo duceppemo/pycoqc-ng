@@ -364,6 +364,13 @@ class ConverterPipeline:
     # silently dropped the pass or fail column the command produced.
     DEFAULT_FIELDS = None
 
+    @classmethod
+    def help_defaults(cls):
+        """Defaults to show in place of the signature's: fields=None stands
+        for DEFAULT_FIELDS, listed, or every field where that is None. The
+        command line and the notebook help both read them from here."""
+        return {"fields": None if cls.DEFAULT_FIELDS is None else list(cls.DEFAULT_FIELDS)}
+
     #~~~~~~~~~~~~~~SET UP~~~~~~~~~~~~~~#
     def _configure(self, in_dir, seq_summary_fn, max_files, threads,
                    basecall_id, include_path, verbose_level):
@@ -419,14 +426,9 @@ class ConverterPipeline:
         None. Asking for path alone, without --include_path, leaves the read
         ids, not every field and not none.
 
-        Any iterable of names will do: a list, a numpy array, a DataFrame's
-        columns, a generator. It is made a list first, since an array's truth
-        value is ambiguous and a generator has no length. A single name given
-        as a string is one field, not one per letter.
+        See _field_list for what is accepted as names.
         """
-        if isinstance(fields, str):
-            fields = [fields]
-        fields = None if fields is None else [str(f) for f in fields]
+        fields = self._field_list(fields)
         if not fields:
             fields = self.DEFAULT_FIELDS
         if fields is None:
@@ -440,6 +442,43 @@ class ConverterPipeline:
             if not (keep_path and self.include_path):
                 fields.remove("path")
         return fields or ["read_id"]
+
+    @staticmethod
+    def _field_list(fields):
+        """`fields` as a list of names, or None.
+
+        A string is one name, and an empty one is no name at all. Otherwise
+        any ordered iterable of strings will do: a list, a tuple, a numpy
+        array, a DataFrame's columns, a generator. It is made a list first,
+        since an array's truth value is ambiguous and a generator has no
+        length.
+
+        Anything else is refused by name rather than turned into names: a
+        string was taken one field per letter, bytes one per byte, str() of a
+        bytes name gave "b'read_id'", and a set has no order, so the columns
+        it named came out in a different order on each run.
+        """
+        if fields is None:
+            return None
+        if isinstance(fields, str):
+            return [fields] if fields else []
+        if isinstance(fields, (bytes, set, frozenset)):
+            raise pycoQCError(
+                "fields must be field names in order, as a list of strings, "
+                "not {}".format(type(fields).__name__))
+        try:
+            names = list(fields)
+        except TypeError:
+            raise pycoQCError(
+                "fields must be field names, as a list of strings, not "
+                "{!r}".format(fields)) from None
+        for name in names:
+            if not isinstance(name, str) or not name:
+                raise pycoQCError(
+                    "fields must be field names, as non empty strings; got "
+                    "{!r}".format(name))
+        # numpy's str_ is a str, but plain names keep the columns plain.
+        return [str(name) for name in names]
 
     def _input_files(self):
         """Every input file under in_dir, in order, up to max_files."""

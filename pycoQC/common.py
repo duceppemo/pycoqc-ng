@@ -9,6 +9,7 @@ import inspect
 from glob import glob
 import logging
 import re
+import sys
 import traceback
 from collections import Counter, OrderedDict
 
@@ -424,14 +425,23 @@ def doc_func(func):
     return " ".join(docstr_list)
 
 
+def _defining_class(func):
+    """The class whose __init__ `func` is, or None."""
+    parts = getattr(func, "__qualname__", "").split(".")
+    if len(parts) == 2 and parts[1] == "__init__":
+        return getattr(sys.modules.get(func.__module__), parts[0], None)
+    return None
+
+
 def make_arg_dict(func):
     """Parse the arguments default value, type and doc"""
 
-    # Init method for classes. A converter's fields default to None, which
-    # stands for its DEFAULT_FIELDS; those are what the help shows.
-    default_fields = None
+    # Init method for classes. A class can give, through help_defaults, the
+    # defaults to show where its signature has a stand in, as a converter's
+    # fields=None stands for its DEFAULT_FIELDS. Its __init__ shows the same.
+    owner = func if inspect.isclass(func) else _defining_class(func)
+    shown = owner.help_defaults() if hasattr(owner, "help_defaults") else {}
     if inspect.isclass(func):
-        default_fields = getattr(func, "DEFAULT_FIELDS", None)
         func = func.__init__
 
     if inspect.isfunction(func) or inspect.ismethod(func):
@@ -447,10 +457,8 @@ def make_arg_dict(func):
                     # Get default value if available
                     if p.default == inspect._empty:
                         d[name]["required"] = True
-                    elif name == "fields" and p.default is None and default_fields is not None:
-                        d[name]["default"] = list(default_fields)
                     else:
-                        d[name]["default"] = p.default
+                        d[name]["default"] = shown.get(name, p.default)
 
         # Parse the docstring in a dict
         docstr_dict = OrderedDict()
