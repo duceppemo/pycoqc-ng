@@ -118,6 +118,12 @@ fixes fell out of.
   took turns: on 54,000 BAM records, 8 threads took 14.1 s against 5.9 s
   for 3. They now take 2.7 s with 8. They print the same progress and
   totals as the FASTQ and FAST5 converters in place of their own lines.
+* The figures in the run, basecall and alignment summary tables and in the
+  JSON report are computed once per read set and shared, in place of a
+  method per figure called again by each table and again by the report.
+  The per barcode table groups the reads once rather than scanning the
+  whole run for each barcode, twice: half the time with 3 barcodes, and
+  the saving grows with the barcode count.
 * `--basecall_id` warns that it is ignored by the FASTQ converter too, as
   it already did for BAM and POD5; only a FAST5 has basecall groups.
 * `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One

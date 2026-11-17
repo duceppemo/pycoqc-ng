@@ -373,15 +373,6 @@ class pycoQC_plot():
                               for label, *args in prepared],
                      **position)]
 
-    def _basecalled_reads(self, df):
-        return len(df)
-
-    def _basecalled_bases(self, df):
-        return int(df["read_len"].sum())
-
-    def _basecall_N50(self, df):
-        return self._compute_N50(df["read_len"])
-
     @staticmethod
     def _median_or_nan(values):
         """Median of a column, or NA when there is nothing to take it of
@@ -394,15 +385,6 @@ class pycoQC_plot():
         if values.empty:
             return np.nan
         return np.median(values)
-
-    def _basecall_median_read_len(self, df):
-        return self._median_or_nan(df["read_len"])
-
-    def _basecall_median_read_qscore(self, df):
-        return self._median_or_nan(df["mean_qscore"])
-
-    def _basecall_median_read_gc(self, df):
-        return self._median_or_nan(df["%GC"])
 
     def _alignment_mean_coverage(self, df):
         """Mean depth over the reference.
@@ -420,29 +402,54 @@ class pycoQC_plot():
         spans = (df["ref_end"] - df["ref_start"]).dropna()
         return spans.sum() / self.total_ref_len
 
-    def _aligned_reads(self, df):
-        return len(df["align_len"].dropna()) if self.has_alignment else np.nan
+    def _metrics(self, df_level):
+        """Every figure the summary tables and the JSON report give for one
+        read set, computed once.
 
-    def _aligned_bases(self, df):
-        return int(df["align_len"].dropna().sum()) if self.has_alignment else np.nan
+        Each table used to compute its own, through a method per figure,
+        and the JSON report computed them all again: the barcode count was
+        worked out five times per report and the reference length eight.
+        """
+        df = self._level_dfs(df_level)[0]
+        # Keyed on the frame as well, so replacing one is never answered
+        # from the old one.
+        key = (df_level, id(df))
+        cache = self.__dict__.setdefault("_metrics_cache", {})
+        if key not in cache:
+            cache[key] = self._read_set_metrics(df)
+        return cache[key]
 
-    def _alignment_N50(self, df):
-        return self._compute_N50(df["align_len"]) if self.has_alignment else np.nan
+    def _read_set_metrics(self, df):
+        m = OrderedDict()
+        m["run_duration"] = self._run_duration(df)
+        m["active_channels"] = self._active_channels(df)
+        m["runid_number"] = self._runid_number(df)
+        m["barcodes_number"] = self._barcodes_number(df)
 
-    def _alignment_median_read_len(self, df):
-        return self._median_or_nan(df["align_len"]) if self.has_alignment else np.nan
+        if self.has_basecalls:
+            m["reads"] = len(df)
+            m["bases"] = int(df["read_len"].sum())
+            m["N50"] = self._compute_N50(df["read_len"])
+            m["median_read_len"] = self._median_or_nan(df["read_len"])
+            m["median_qscore"] = self._median_or_nan(df["mean_qscore"])
+            m["median_gc"] = (self._median_or_nan(df["%GC"])
+                              if self.has_gc_percent else np.nan)
 
-    def _alignment_median_identity(self, df):
-        return self._median_or_nan(df["identity_freq"]) if self.has_identity_freq else np.nan
-
-    def _alignment_insertion_rate(self, df):
-        return df["insertion"].dropna().sum()/self._aligned_bases(df) if self.has_identity_freq else np.nan
-
-    def _alignment_deletion_rate(self, df):
-        return df["deletion"].dropna().sum() / self._aligned_bases(df) if self.has_identity_freq else np.nan
-
-    def _alignment_mismatch_rate(self, df):
-        return df["mismatch"].dropna().sum() / self._aligned_bases(df) if self.has_identity_freq else np.nan
+        if self.has_alignment:
+            align_len = df["align_len"].dropna()
+            m["aligned_reads"] = len(align_len)
+            m["aligned_bases"] = int(align_len.sum())
+            m["mean_coverage"] = self._alignment_mean_coverage(df)
+            m["align_N50"] = self._compute_N50(align_len)
+            m["align_median_len"] = self._median_or_nan(align_len)
+            if self.has_identity_freq:
+                m["median_identity"] = self._median_or_nan(df["identity_freq"])
+                # Each error type per aligned base.
+                for kind in ("insertion", "deletion", "mismatch"):
+                    m[kind + "_rate"] = df[kind].dropna().sum() / m["aligned_bases"]
+            else:
+                m["median_identity"] = np.nan
+        return m
 
     #~~~~~~~SUMMARY_STATS_DICT METHOD AND HELPER~~~~~~~#
 
@@ -457,18 +464,18 @@ class pycoQC_plot():
         d["pycoqc"]["version"] = package_version
         d["pycoqc"]["date"] = datetime.datetime.now().strftime("%d/%m/%y")
 
-        for df, lab in ((self.all_df, "All Reads"), (self.pass_df, "Pass Reads")):
-            d[lab] = self._compute_stats(df)
+        for level, lab in (("all", "All Reads"), ("pass", "Pass Reads")):
+            d[lab] = self._compute_stats(level)
         return d
 
-    def _compute_stats(self, df):
+    def _compute_stats(self, df_level):
+        df = self._level_dfs(df_level)[0]
+        m = self._metrics(df_level)
         d = OrderedDict()
         # run information
         d["run"] = OrderedDict()
-        d["run"]["run_duration"] = self._run_duration(df)
-        d["run"]["active_channels"] = self._active_channels(df)
-        d["run"]["runid_number"] = self._runid_number(df)
-        d["run"]["barcodes_number"] = self._barcodes_number(df)
+        for key in ("run_duration", "active_channels", "runid_number", "barcodes_number"):
+            d["run"][key] = m[key]
         if self.has_end_reason:
             counts = df["end_reason"].fillna("unknown").value_counts()
             d["run"]["end_reasons"] = OrderedDict(
@@ -478,9 +485,9 @@ class pycoQC_plot():
         # read occupied its pore, which is reported in its place.
         if self.has_basecalls:
             d["basecall"] = OrderedDict()
-            d["basecall"]["reads_number"] = self._basecalled_reads(df)
-            d["basecall"]["bases_number"] = self._basecalled_bases(df)
-            d["basecall"]["N50"] = self._basecall_N50(df)
+            d["basecall"]["reads_number"] = m["reads"]
+            d["basecall"]["bases_number"] = m["bases"]
+            d["basecall"]["N50"] = m["N50"]
             d["basecall"]["len_percentiles"] = self._compute_percentiles(df["read_len"])
             d["basecall"]["qual_score_percentiles"] = self._compute_percentiles(df["mean_qscore"])
 
@@ -510,10 +517,10 @@ class pycoQC_plot():
 
         if self.has_alignment:
             d["alignment"] = OrderedDict()
-            d["alignment"]["reads_number"] = self._aligned_reads(df)
-            d["alignment"]["bases_number"] = self._aligned_bases(df)
-            d["alignment"]["mean_coverage"] = self._alignment_mean_coverage(df)
-            d["alignment"]["N50"] = self._alignment_N50(df)
+            d["alignment"]["reads_number"] = m["aligned_reads"]
+            d["alignment"]["bases_number"] = m["aligned_bases"]
+            d["alignment"]["mean_coverage"] = m["mean_coverage"]
+            d["alignment"]["N50"] = m["align_N50"]
             d["alignment"]["len_percentiles"] = self._compute_percentiles(df["align_len"])
             x, y = self._compute_hist(data=df["align_len"], x_scale="log", smooth_sigma=2, nbins=100)
             d["alignment"]["len_hist"] = OrderedDict()
@@ -522,9 +529,8 @@ class pycoQC_plot():
 
             if self.has_identity_freq:
                 d["alignment"]["identity_freq_percentiles"] = self._compute_percentiles(df["identity_freq"])
-                d["alignment"]["insertion_rate"] = self._alignment_insertion_rate(df)
-                d["alignment"]["deletion_rate"] = self._alignment_deletion_rate(df)
-                d["alignment"]["mismatch_rate"] = self._alignment_mismatch_rate(df)
+                for key in ("insertion_rate", "deletion_rate", "mismatch_rate"):
+                    d["alignment"][key] = m[key]
                 x, y = self._compute_hist(data=df["identity_freq"], x_scale="linear", smooth_sigma=2, nbins=100)
                 d["alignment"]["identity_freq_hist"] = OrderedDict()
                 d["alignment"]["identity_freq_hist"]["x"] = x
@@ -551,13 +557,10 @@ class pycoQC_plot():
         """
         # Extract data
         data = []
-        for status, df in (("All Reads", self.all_df), ("Pass Reads", self.pass_df), ("Fail Reads", self.fail_df)):
-            data.append([
-                status,
-                self._run_duration(df),
-                self._active_channels(df),
-                self._runid_number(df),
-                self._barcodes_number(df)])
+        for level in LEVELS:
+            m = self._metrics(level)
+            data.append([self._level_label(level), m["run_duration"], m["active_channels"],
+                         m["runid_number"], m["barcodes_number"]])
 
         fig = self._summary_plot(
             width=width,
@@ -587,16 +590,12 @@ class pycoQC_plot():
         self._require_basecalls()
         # Extract data
         data = []
-        for status, df in (("All Reads", self.all_df), ("Pass Reads", self.pass_df), ("Fail Reads", self.fail_df)):
-            row = [
-                status,
-                self._basecalled_reads(df),
-                self._basecalled_bases(df),
-                self._basecall_N50(df),
-                self._basecall_median_read_len(df),
-                self._basecall_median_read_qscore(df)]
+        for level in LEVELS:
+            m = self._metrics(level)
+            row = [self._level_label(level), m["reads"], m["bases"], m["N50"],
+                   m["median_read_len"], m["median_qscore"]]
             if self.has_gc_percent:
-                row.append(self._basecall_median_read_gc(df))
+                row.append(m["median_gc"])
             data.append(row)
 
         fig_header_list = ["Status", "Reads", "Bases", "N50", "Median Length", "Median Q-score"]
@@ -635,15 +634,11 @@ class pycoQC_plot():
             raise pycoQCError("No alignment information available")
 
         data = []
-        for status, df in (("All Reads", self.all_df), ("Pass Reads", self.pass_df), ("Fail Reads", self.fail_df)):
-            data.append([
-                status,
-                self._aligned_reads(df),
-                self._aligned_bases(df),
-                self._alignment_mean_coverage(df),
-                self._alignment_N50(df),
-                self._alignment_median_read_len(df),
-                self._alignment_median_identity(df)])
+        for level in LEVELS:
+            m = self._metrics(level)
+            data.append([self._level_label(level), m["aligned_reads"], m["aligned_bases"],
+                         m["mean_coverage"], m["align_N50"], m["align_median_len"],
+                         m["median_identity"]])
 
         fig = self._summary_plot(
             width=width,
@@ -773,31 +768,33 @@ class pycoQC_plot():
         # reads row. The distribution statistics still come from the sample.
         df, sample_df = self._level_dfs(df_level)
 
-        # Extract data
-        data = []
+        # One pass over each frame, grouped by barcode. Selecting each
+        # barcode with a mask scanned the whole run once per barcode, twice
+        # over: a 96 barcode run read every row 192 times per read set.
         bc_list = self._barcode_order(df['barcode'].unique())
+        totals = df.groupby('barcode', sort=False, observed=True)['read_len'].agg(['size', 'sum'])
+        samples = dict(tuple(sample_df.groupby('barcode', sort=False, observed=True)))
 
+        data = []
         for bc in bc_list:
-            # Extract data for barcode
-            df1 = df[df['barcode'] == bc]
-            sample1 = sample_df[sample_df['barcode'] == bc]
             # A barcode with only a handful of reads can miss the sample
             # entirely, and its row then showed a real read count beside a
             # blank N50 and median. Such a barcode is small enough to
             # measure in full.
-            if sample1.empty:
-                sample1 = df1
+            sample1 = samples.get(bc)
+            if sample1 is None or sample1.empty:
+                sample1 = df[df['barcode'] == bc]
             row = [
                 bc,
-                self._basecalled_reads(df1),
-                self._basecalled_bases(df1),
+                int(totals.at[bc, 'size']),
+                int(totals.at[bc, 'sum']),
                 # Medians and N50 are distribution statistics, so the sample
                 # estimates them directly.
-                self._basecall_N50(sample1),
-                self._basecall_median_read_len(sample1),
-                self._basecall_median_read_qscore(sample1)]
+                self._compute_N50(sample1['read_len']),
+                self._median_or_nan(sample1['read_len']),
+                self._median_or_nan(sample1['mean_qscore'])]
             if self.has_gc_percent:
-                row.append(self._basecall_median_read_gc(sample1))
+                row.append(self._median_or_nan(sample1['%GC']))
             data.append(row)
 
         data_dict = dict(
