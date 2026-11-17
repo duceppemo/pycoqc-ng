@@ -541,6 +541,11 @@ def jhelp(f):
     display(Markdown(s))
 
 
+def is_gzip_name(fn):
+    """Whether a file is read as gzip, which is decided by its name."""
+    return str(fn).endswith(".gz")
+
+
 def head(fp, n=10, sep="\t", comment=None):
     """
     Emulate linux head cmd, for plain or gzipped text files
@@ -553,7 +558,7 @@ def head(fp, n=10, sep="\t", comment=None):
 
     # Get lines. Summaries are routinely kept gzipped, and opening one as
     # text raised UnicodeDecodeError rather than showing it.
-    opener = gzip.open if str(fp).endswith(".gz") else open
+    opener = gzip.open if is_gzip_name(fp) else open
     try:
         with opener(fp, "rt") as fh:
             line_num = 0

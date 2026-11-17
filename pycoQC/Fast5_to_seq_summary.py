@@ -97,6 +97,7 @@ class Fast5_to_seq_summary(ConverterPipeline):
         """
         self._configure(fast5_dir, seq_summary_fn, max_fast5, threads,
                         basecall_id, include_path, verbose_level)
+        fields = self._requested_fields(fields)
         for field in fields:
             # passes_filtering is not an attribute of anything: a FAST5 does
             # not record it, so it is read from the path the basecaller

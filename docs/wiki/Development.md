@@ -94,16 +94,18 @@ All four converters run the same pipeline, `ConverterPipeline` in `pycoQC/_pipel
   converter asks for that, writes the summary under its own name in a directory of
   this run's own beside it (`<summary>.pycoqc-tmp-<random>/`), so compression is still
   inferred from the name, and sends back a report;
-* the **calling process** reads the messages until every worker has exited: a worker
-  cannot exit while what it sent is unread, and messages from different workers arrive
-  in no fixed order. It then moves the file into place and logs the report. If any
-  worker failed it raises instead, choosing the error from the earliest stage (lister,
-  then parsers, then writer), since the later ones are usually its consequences; once
-  an error arrives the others get half a second, as a worker downstream of a failure may
-  never exit on its own. Either way the directory is removed. A worker that dies
-  without sending anything is noticed from its exit code. Moving the file into place
-  only after every worker has finished means a failed conversion never leaves a
-  summary that looks complete.
+* the **calling process** hears from each worker on a pipe of its own, and sleeps until
+  one sends something or exits, reading every pipe to its end: a worker cannot exit
+  while what it sent is unread, and messages from different workers arrive in no fixed
+  order. Once all have finished it moves the file into place and logs the report. If
+  any worker failed it raises instead, choosing the error from the earliest stage
+  (lister, then parsers, then writer), since the later ones are usually its
+  consequences; once an error arrives the others get half a second, as a worker
+  downstream of a failure may never exit on its own. Either way the directory is
+  removed. A worker that dies without sending anything is noticed from its exit code,
+  unless the writer has already reported, by which time every file has been read and
+  the summary written. Moving the file into place only after every worker has finished
+  means a failed conversion never leaves a summary that looks complete.
 
 The FASTQ converter is the one exception to "a file per item": a file well over an
 even share of the input (`WHOLE_FILE_SLACK` times the total over the parser count, with

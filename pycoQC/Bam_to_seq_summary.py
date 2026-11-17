@@ -74,7 +74,7 @@ class Bam_to_seq_summary(ConverterPipeline):
         """
         self._configure(bam_dir, seq_summary_fn, max_bam, threads,
                         basecall_id, include_path, verbose_level)
-        self.fields = fields
+        self.fields = self._requested_fields(fields)
 
         self._run()
 
@@ -218,21 +218,20 @@ class Bam_to_seq_summary(ConverterPipeline):
         they were accepted and did nothing. A record only carries its path
         when --include_path is given, so it is kept here when present.
         """
-        if self.fields:
+        # None is every field; an empty list, left when only path was asked
+        # for, is the read ids alone.
+        if self.fields is not None:
             wanted = [f for f in self.fields if f != "read_id"]
-            # The path is not read from the BAM: it is only there with
-            # --include_path, and its absence says nothing about the file.
-            if "path" in wanted and not self.include_path:
-                notes.append("WARNING: the path column is only written with "
-                             "--include_path, so path left out of the summary")
-                wanted.remove("path")
             missing = [f for f in wanted if f not in df.columns]
             if missing:
+                # The names went in the wrong place: "a BAM carries no field
+                # called, so mux left out of the summary".
                 notes.append(
-                    "WARNING: a BAM carries no {}, so {} left out of the "
+                    "WARNING: a BAM carries no {} {}, so {} left out of the "
                     "summary".format(
                         "field called" if len(missing) == 1 else "fields called",
-                        ", ".join(missing)))
+                        ", ".join(missing),
+                        "it is" if len(missing) == 1 else "they are"))
             keep = [f for f in wanted if f in df.columns]
             if self.include_path and "path" in df.columns and "path" not in keep:
                 keep.append("path")
