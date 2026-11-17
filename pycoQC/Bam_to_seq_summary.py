@@ -57,8 +57,8 @@ class Bam_to_seq_summary(ConverterPipeline):
         * threads
             Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3(default = 4)
         * fields
-            Columns to keep in the summary. None, the default, writes every
-            field the bam files carry: run_id, channel, barcode_arrangement,
+            Columns to keep in the summary, in that order. None, the default,
+            or an empty list writes every field the bam files carry: run_id, channel, barcode_arrangement,
             sequence_length_template, mean_qscore_template, gc_percent,
             start_time, passes_filtering, flowcell_id, device_id,
             dorado_model, filename, sample_id, run_start_time, duration,
@@ -74,7 +74,9 @@ class Bam_to_seq_summary(ConverterPipeline):
         """
         self._configure(bam_dir, seq_summary_fn, max_bam, threads,
                         basecall_id, include_path, verbose_level)
-        self.fields = self._requested_fields(fields)
+        # Path stays where it was listed, as the columns are written in the
+        # order asked for.
+        self.fields = self._requested_fields(fields, keep_path=True)
 
         self._run()
 
@@ -218,9 +220,8 @@ class Bam_to_seq_summary(ConverterPipeline):
         they were accepted and did nothing. A record only carries its path
         when --include_path is given, so it is kept here when present.
         """
-        # None is every field; an empty list, left when only path was asked
-        # for, is the read ids alone.
-        if self.fields is not None:
+        # None or an empty list is every field, as an empty list always was.
+        if self.fields:
             wanted = [f for f in self.fields if f != "read_id"]
             missing = [f for f in wanted if f not in df.columns]
             if missing:

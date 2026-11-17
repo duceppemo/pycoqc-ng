@@ -111,7 +111,7 @@ Shared options:
 |---|---|---|
 | `-f`, `--*_dir` | — | Input directory, searched recursively (required) |
 | `-s`, `--seq_summary_fn` | — | Output summary file (required). A name ending in `.gz`, `.bz2`, `.xz` or `.zip` is written compressed |
-| `-t`, `--threads` | 4 | Processes: one lists the input files, one writes the summary and the rest parse, so the minimum is 3 and each thread above it adds a parser |
+| `-t`, `--threads` | 4 | Processes: one lists the input files, one writes the summary and the rest parse, so the minimum is 3 and each thread above it adds a parser. At most 31 on Windows before Python 3.12 |
 | `--max_*` | 0 | Stop after this many input files. `0` means no limit |
 | `--fields` | see `--help` | Columns to keep (FASTQ, BAM and FAST5; POD5 has no such option) |
 | `--include_path` | off | Add a column with the absolute path of the source file |

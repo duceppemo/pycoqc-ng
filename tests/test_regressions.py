@@ -564,7 +564,8 @@ class TestWorkersAreNotForked:
 
 
 def _scripted_worker(conn, steps):
-    """A stand-in worker: ("sleep", s), ("send", message) or ("exit", code)."""
+    """A stand-in worker: ("sleep", s), ("send", message), ("set", event),
+    ("wait", event) or ("exit", code)."""
     import os
     import time
     for action, value in steps:
@@ -572,30 +573,43 @@ def _scripted_worker(conn, steps):
             time.sleep(value)
         elif action == "send":
             conn.send(value)
+        elif action == "set":
+            value.set()
+        elif action == "wait":
+            value.wait(60)
         else:
             conn.close()
             os._exit(value)
 
 
-def _run_scripted(*scripts, grace=60):
+def _event():
+    """An event the stand-in workers can share, to put their steps in order."""
+    from pycoQC._pipeline import worker_context
+    return worker_context().Event()
+
+
+def _run_scripted(*scripts, grace=60, started=None):
     """Run stand-in workers, each reporting on a pipe of its own, as the
     pipeline does; returns wait_for_workers' result, or raises its error.
-    The processes are left in started for the caller to check."""
+    The processes are added to `started`, when given, for the caller to
+    check once they have been joined."""
     from pycoQC._pipeline import wait_for_workers, worker_context
     ctx = worker_context()
     workers = []
-    for steps in scripts:
-        reader, writer = ctx.Pipe(duplex=False)
-        proc = ctx.Process(target=_scripted_worker, args=(writer, steps))
-        proc.start()
-        writer.close()
-        workers.append((proc, reader))
-    _run_scripted.started = [proc for proc, _ in workers]
     try:
+        for steps in scripts:
+            reader, writer = ctx.Pipe(duplex=False)
+            proc = ctx.Process(target=_scripted_worker, args=(writer, steps))
+            proc.start()
+            writer.close()
+            workers.append((proc, reader))
         return wait_for_workers(workers, grace=grace)
     finally:
-        for proc in _run_scripted.started:
+        for proc, reader in workers:
             proc.join(10)
+            reader.close()
+        if started is not None:
+            started.extend(proc for proc, _ in workers)
 
 
 class TestWhichErrorIsReported:
@@ -615,19 +629,25 @@ class TestWhichErrorIsReported:
         """The parent returned on the writer's report and then joined the
         workers, and one with a large message still unread could not exit."""
         from pycoQC._pipeline import PARSER
+        started = []
         with pytest.raises(pycoQCError):
             _run_scripted([("send", ("done", {}))],
-                          [("sleep", 0.3), ("send", ("error", PARSER, "x" * 300000))])
-        assert [p.exitcode for p in _run_scripted.started] == [0, 0]
+                          [("sleep", 0.3), ("send", ("error", PARSER, "x" * 300000))],
+                          started=started)
+        assert [p.exitcode for p in started] == [0, 0]
 
     def test_a_clean_run_returns_the_report(self):
         assert _run_scripted([("send", ("done", {"reads": 3}))]) == {"reads": 3}
 
     def test_a_crash_after_the_report_does_not_fail_the_run(self):
         """Every file had been read and the summary written, but a worker
-        crashing on its way out failed the run and lost the summary."""
-        report = _run_scripted([("send", ("done", {"reads": 3})), ("exit", 0)],
-                               [("sleep", 0.3), ("exit", 3)])
+        crashing on its way out failed the run and lost the summary. The
+        crash waits for the report to be sent: with a fixed head start, a
+        slow start of the first worker let the crash come first."""
+        sent = _event()
+        report = _run_scripted(
+            [("send", ("done", {"reads": 3})), ("set", sent), ("exit", 0)],
+            [("wait", sent), ("exit", 3)])
         assert report == {"reads": 3}
 
     def test_a_report_sent_just_before_a_crash_is_read(self):
@@ -641,6 +661,50 @@ class TestWhichErrorIsReported:
         that never started raises."""
         from pycoQC._pipeline import stop_processes, worker_context
         stop_processes([worker_context().Process(target=_scripted_worker, args=(None, []))])
+
+
+class TestWindowsHandleLimit:
+    """The parent waits on a pipe and an exit per worker, and before Python
+    3.12 Windows waits on at most 63: --threads 32 failed at once."""
+
+    @pytest.mark.parametrize("platform, version, expected", [
+        ("win32", (3, 11), 31), ("win32", (3, 9), 31),
+        ("win32", (3, 12), 40), ("linux", (3, 9), 40), ("darwin", (3, 11), 40)])
+    def test_threads_are_capped_only_where_needed(self, platform, version, expected):
+        from pycoQC._pipeline import thread_limit
+        assert thread_limit(40, platform, version) == expected
+
+    def test_fewer_threads_are_left_alone(self):
+        from pycoQC._pipeline import thread_limit
+        assert thread_limit(8, "win32", (3, 9)) == 8
+
+    def test_the_cap_is_applied_and_said(self, fastq_dir, tmp_path, monkeypatch, caplog):
+        import pycoQC._pipeline as pipeline
+        monkeypatch.setattr(pipeline, "thread_limit", lambda threads: 3)
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        with caplog.at_level(logging.WARNING):
+            conv._configure(str(fastq_dir), str(tmp_path / "s.txt"), 0, 40, 0, False, 0)
+        assert conv.threads == 1
+        assert "can run at most 3 threads" in caplog.text
+
+
+class TestNameStart:
+    """The staging directory kept 150 characters of the summary's name, and
+    the limit is 255 bytes: 80 Chinese characters is 240."""
+
+    def test_a_multibyte_name_is_cut_in_bytes(self):
+        from pycoQC._pipeline import name_start
+        start = name_start("测" * 80)
+        assert len(os.fsencode(start)) <= 150
+        assert start == "测" * 50
+
+    def test_a_character_is_never_cut_in_half(self):
+        from pycoQC._pipeline import name_start
+        assert name_start("a" + "测" * 80) == "a" + "测" * 49
+
+    def test_a_short_name_is_kept_whole(self):
+        from pycoQC._pipeline import name_start
+        assert name_start("summary.txt") == "summary.txt"
 
 
 class TestWorkersThatDieSilently:
@@ -690,6 +754,25 @@ class _LateListerFailure(Fastq_to_seq_summary):
     def _work_items(self):
         yield from super()._work_items()
         raise pycoQCError("listing failed after the last file")
+
+
+class _ExitingLister(Fastq_to_seq_summary):
+    """Lists one file, then is stopped by something that is not an
+    Exception. A class of its own per exception: a worker re-imports this
+    module, so a class attribute set by a test would not reach it."""
+
+    def _work_items(self):
+        items = iter(super()._work_items())
+        yield next(items)
+        raise SystemExit(0)
+
+
+class _InterruptedLister(_ExitingLister):
+
+    def _work_items(self):
+        items = iter(Fastq_to_seq_summary._work_items(self))
+        yield next(items)
+        raise KeyboardInterrupt
 
 
 class _UniqueFastq(Fastq_to_seq_summary):
@@ -785,6 +868,31 @@ class TestFailedConversionsWriteNothing:
         out = tmp_path / ("s" * 240 + ".txt")
         Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3)
         assert sorted(p.name for p in tmp_path.iterdir()) == [out.name]
+
+    @pytest.mark.skipif(sys.getfilesystemencoding().lower() != "utf-8",
+                        reason="the name needs a UTF-8 file system encoding")
+    def test_a_long_multibyte_summary_name_still_fits(self, fastq_dir, tmp_path):
+        out = tmp_path / ("测" * 80 + ".txt")
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3)
+        assert sorted(p.name for p in tmp_path.iterdir()) == [out.name]
+
+    @pytest.mark.parametrize("lister, stop", [(_ExitingLister, "SystemExit"),
+                                              (_InterruptedLister, "KeyboardInterrupt")])
+    def test_a_lister_stopped_part_way_writes_nothing(self, lister, stop, fastq_dir,
+                                                       tmp_path):
+        """The lister caught only an Exception. Stopped by anything else, it
+        still sent the parsers their stop signals, so the writer wrote and
+        reported a summary missing the files not yet listed. Stopped by
+        SystemExit(0), it even exited cleanly."""
+        import shutil
+        in_dir = tmp_path / "in"
+        in_dir.mkdir()
+        for name in ("a", "b"):
+            shutil.copy(fastq_dir / "reads.fastq.gz", in_dir / (name + ".fastq.gz"))
+        out = tmp_path / "s.txt"
+        with pytest.raises(pycoQCError, match=stop):
+            lister(fastq_dir=str(in_dir), seq_summary_fn=str(out), threads=3)
+        assert not out.exists()
 
     def test_a_clean_run_leaves_only_the_summary(self, bam_dir, tmp_path):
         out = tmp_path / "s.txt"
@@ -912,6 +1020,39 @@ class TestRecordsCarryOnlyWhatIsAsked:
                                threads=3, fields=["channel", "nonesuch"])
         assert ("a BAM carries no field called nonesuch, so it is left out of "
                 "the summary") in caplog.text
+
+    def test_a_field_named_twice_is_one_column(self, bam_dir, tmp_path):
+        out = tmp_path / "s.txt"
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(out),
+                           threads=3, fields=["channel", "channel"])
+        assert list(pd.read_csv(out, sep="\t").columns) == ["read_id", "channel"]
+
+    def test_a_field_named_twice_is_counted_once(self, fastq_dir, reads, tmp_path,
+                                                 caplog):
+        with caplog.at_level(logging.INFO):
+            Fastq_to_seq_summary(fastq_dir=str(fastq_dir),
+                                 seq_summary_fn=str(tmp_path / "s.txt"), threads=3,
+                                 fields=["read_id", "channel", "channel"],
+                                 verbose_level=2)
+        text = caplog.text
+        found = text[text.index("fields found"):text.index("fields not found")]
+        assert "channel: {:,}".format(len(reads)) in found
+
+    def test_path_stays_where_it_was_listed(self, bam_dir, tmp_path):
+        out = tmp_path / "s.txt"
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(out), threads=3,
+                           include_path=True, fields=["channel", "path", "mux"])
+        columns = list(pd.read_csv(out, sep="\t").columns)
+        assert columns[:3] == ["read_id", "channel", "path"]
+
+    def test_an_empty_field_list_is_every_field(self, bam_dir, tmp_path):
+        """fields=[] meant every field until the check became `is not None`."""
+        every, empty = tmp_path / "every.txt", tmp_path / "empty.txt"
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(every), threads=3)
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(empty), threads=3,
+                           fields=[])
+        assert (list(pd.read_csv(empty, sep="\t").columns)
+                == list(pd.read_csv(every, sep="\t").columns))
 
     def test_a_bam_record_has_no_path_unless_asked(self, bam_dir):
         from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary as Bam
