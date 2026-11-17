@@ -140,8 +140,8 @@ class TestWorkItems:
     def converter(fastq_dir, parsers, reads_per_chunk=1000):
         # The work items are worked out without starting any process.
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
-        conv.fastq_dir = str(fastq_dir)
-        conv.max_fastq = 0
+        conv.in_dir = str(fastq_dir)
+        conv.max_files = 0
         conv.threads = parsers
         conv.reads_per_chunk = reads_per_chunk
         return conv

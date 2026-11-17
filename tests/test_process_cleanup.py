@@ -17,7 +17,8 @@ import multiprocessing as mp
 
 import pytest
 
-from pycoQC.common import pycoQCError, stop_processes, worker_context
+from pycoQC._pipeline import stop_processes, worker_context
+from pycoQC.common import pycoQCError
 from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary
 from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 

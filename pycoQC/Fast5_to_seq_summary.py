@@ -2,7 +2,6 @@
 # Standard library imports
 import os
 from collections import OrderedDict
-import logging
 
 # Third party imports
 import h5py
@@ -10,12 +9,10 @@ import h5py
 # Local imports
 from pycoQC._pipeline import ConverterPipeline
 from pycoQC.common import (
-    VERBOSE_LEVELS, check_converter_io, get_logger, path_below, path_has_token,
-    pycoQCError, recursive_file_gen)
+    path_below,
+    path_has_token,
+    pycoQCError)
 
-# Configured when a conversion starts, not on import: setting up the root
-# logger here switched on INFO output for every library in the process.
-logger = logging.getLogger(__name__)
 
 #~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~#
 class Fast5_to_seq_summary(ConverterPipeline):
@@ -25,6 +22,7 @@ class Fast5_to_seq_summary(ConverterPipeline):
     raise an error if not found.
     """
     kind = "fast5"
+    extensions = ("fast5",)
 
     # Map attrs location in hdf5
     attrs_grp_dict = {
@@ -97,16 +95,8 @@ class Fast5_to_seq_summary(ConverterPipeline):
         * verbose_level
             Level of verbosity, from 2 (Chatty) to 0 (Nothing)
         """
-        # Set logging level
-        # Kept, so each worker can set it again: a worker that is spawned
-        # rather than forked, as on macOS and from Python 3.14 on Linux,
-        # starts with a fresh logger and printed none of its counts.
-        self.log_level = VERBOSE_LEVELS.get(verbose_level, logging.WARNING)
-        get_logger(__name__, level=self.log_level)
-
-        # Perform checks
-        logger.info("Check input data and options")
-        check_converter_io(fast5_dir, seq_summary_fn, threads, "fast5")
+        self._configure(fast5_dir, seq_summary_fn, max_fast5, threads,
+                        basecall_id, include_path, verbose_level)
         for field in fields:
             # passes_filtering is not an attribute of anything: a FAST5 does
             # not record it, so it is read from the path the basecaller
@@ -114,35 +104,11 @@ class Fast5_to_seq_summary(ConverterPipeline):
             if field not in self.attrs_grp_dict and field != "passes_filtering":
                 raise pycoQCError("Field {} is not valid, please choose among the following valid fields: {}".format(
                     field, ",".join(self.attrs_grp_dict.keys())))
-
-        # Save self args
-        self.fast5_dir = fast5_dir
-        self.seq_summary_fn = seq_summary_fn
-        self.threads = threads-2
-        self.max_fast5 = max_fast5
         self.fields = fields
-        self.basecall_id = basecall_id
-        self.include_path = include_path
-        self.verbose_level = verbose_level
 
         self._run()
 
     #~~~~~~~~~~~~~~PIPELINE STAGES~~~~~~~~~~~~~~#
-    def _work_items(self):
-        """Every fast5 file under the input directory, up to max_fast5."""
-        # The count is kept separately: enumerate is zero based, so testing
-        # it against 0 reported "no files found" for a directory holding
-        # exactly one file, and left the name unbound when there were none
-        # at all, raising UnboundLocalError instead of the intended error.
-        count = 0
-        for fast5_fn in recursive_file_gen(dir=self.fast5_dir, ext="fast5"):
-            yield fast5_fn
-            count += 1
-            if self.max_fast5 and count >= self.max_fast5:
-                break
-        if count == 0:
-            raise pycoQCError("No valid fast5 files found in indicated folder")
-
     def _records(self, fast5_fn, c):
         """One dict per read in a fast5 file, single or multi-read."""
         with h5py.File(fast5_fn, "r") as h5_fp:
@@ -188,7 +154,7 @@ class Fast5_to_seq_summary(ConverterPipeline):
                         # whole words so /data/failover/fast5_pass
                         # does not read as failing.
                         d[field] = not path_has_token(
-                            path_below(fast5_fn, self.fast5_dir), "fail")
+                            path_below(fast5_fn, self.in_dir), "fail")
                         c["fields_found"][field] += 1
                         continue
 

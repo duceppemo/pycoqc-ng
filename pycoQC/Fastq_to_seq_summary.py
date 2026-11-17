@@ -12,15 +12,10 @@ import pandas as pd
 # Local imports
 from pycoQC._pipeline import ConverterPipeline
 from pycoQC.common import (
-    VERBOSE_LEVELS,
-    check_converter_io,
-    get_logger,
     path_below,
     path_has_token,
     mean_qscore,
     parse_timestamp,
-    pycoQCError,
-    recursive_file_gen,
     run_health_fields,
     elapsed_seconds_per_run)
 
@@ -209,7 +204,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
     """
 
     kind = "fastq"
-    EXTENSIONS = ['fq', 'fq.gz', 'fastq', 'fastq.gz']
+    extensions = ("fq", "fq.gz", "fastq", "fastq.gz")
 
     # Number of reads parsed as one block. Counting in reads rather than
     # lines means a block can never end in the middle of a record, which
@@ -255,26 +250,9 @@ class Fastq_to_seq_summary(ConverterPipeline):
         * verbose_level
             Level of verbosity, from 2(Chatty) to 0(Nothing)
         """
-        # Set logging level
-        # Kept, so each worker can set it again: a worker that is spawned
-        # rather than forked, as on macOS and from Python 3.14 on Linux,
-        # starts with a fresh logger and printed none of its counts.
-        self.log_level = VERBOSE_LEVELS.get(verbose_level, logging.WARNING)
-        get_logger(__name__, level=self.log_level)
-
-        # Perform checks
-        logger.info("Check input data and options")
-        check_converter_io(fastq_dir, seq_summary_fn, threads, "fastq")
-
-        # Save self args
-        self.fastq_dir = fastq_dir
-        self.seq_summary_fn = seq_summary_fn
-        self.threads = threads-2
-        self.max_fastq = max_fastq
+        self._configure(fastq_dir, seq_summary_fn, max_fastq, threads,
+                        basecall_id, include_path, verbose_level)
         self.fields = fields
-        self.basecall_id = basecall_id
-        self.include_path = include_path
-        self.verbose_level = verbose_level
 
         # Blocks of lines are large, so few are kept waiting for a parser.
         self.in_queue_size = max(4, self.threads * 2)
@@ -287,18 +265,6 @@ class Fastq_to_seq_summary(ConverterPipeline):
         self._run()
 
     #~~~~~~~~~~~~~~PIPELINE STAGES~~~~~~~~~~~~~~#
-    def _fastq_files(self):
-        """Every fastq file under the input directory, up to max_fastq."""
-        files = []
-        for fastq_fn in recursive_file_gen(dir=self.fastq_dir, ext=self.EXTENSIONS):
-            files.append(fastq_fn)
-            if self.max_fastq and len(files) >= self.max_fastq:
-                break
-        if not files:
-            raise pycoQCError("No valid fastq files found in indicated folder")
-        logger.debug("[LISTER] Found {} files".format(len(files)))
-        return files
-
     def _work_items(self):
         """Whole files when there are enough to go round, blocks of lines if not.
 
@@ -310,10 +276,10 @@ class Fastq_to_seq_summary(ConverterPipeline):
         instead. Each block is (path, flag, lines); a whole file has None
         for its lines.
         """
-        files = self._fastq_files()
+        files = list(self._input_files())
         whole_files = len(files) >= self.threads
         for fastq_fn in files:
-            flag = FastqParser.pass_fail_flag(fastq_fn, self.fastq_dir)
+            flag = FastqParser.pass_fail_flag(fastq_fn, self.in_dir)
             if whole_files:
                 yield fastq_fn, flag, None
                 continue
@@ -344,7 +310,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
                     d["path"] = path
                 yield d
 
-    def _finalise(self, df):
+    def _finalise(self, df, notes):
         # start_time is only present if it was asked for, and --fields lets
         # a caller leave it out, which used to raise KeyError once every
         # file had already been parsed.

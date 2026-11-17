@@ -527,7 +527,7 @@ class TestWorkersAreNotForked:
     notebook or an earlier progress bar is enough to leave such a thread."""
 
     def test_converters_use_a_fork_server_or_spawn(self):
-        from pycoQC.common import worker_context
+        from pycoQC._pipeline import worker_context
         assert worker_context().get_start_method() in ("forkserver", "spawn")
 
     @pytest.mark.parametrize("converter", ["fastq", "fast5"])
@@ -571,7 +571,7 @@ class TestWorkersThatDieSilently:
     killed for memory, left the parent waiting on the error queue for ever."""
 
     def test_the_parent_raises_instead_of_waiting(self):
-        from pycoQC.common import wait_for_workers, worker_context
+        from pycoQC._pipeline import wait_for_workers, worker_context
         ctx = worker_context()
         error_q = ctx.Queue()
         ps = ctx.Process(target=_exits_silently, args=(3,))

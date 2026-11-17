@@ -106,10 +106,20 @@ fixes fell out of.
 
 **Changed**
 
-* The FASTQ and FAST5 converters share one worker pipeline (lister, parsers,
-  writer) in `pycoQC/_pipeline.py`, rather than each carrying a copy of the
-  queues, error handling and cleanup. A converter now supplies only its work
-  items, how an item becomes records and any last change to the table.
+* All four converters share one worker pipeline (lister, parsers, writer) in
+  `pycoQC/_pipeline.py`, rather than each carrying its own copy of the
+  queues, error handling, file listing, argument checks and cleanup. A
+  converter now supplies only how a file becomes records and any last
+  change to the table. Rows come out in the order the files are listed,
+  whatever the number of threads, and what the user is told is logged by
+  the calling process rather than a worker.
+* `Bam_to_seq_summary` and `Pod5_to_seq_summary` parse in processes rather
+  than threads. Their per-read work holds Python's GIL, so the threads only
+  took turns: on 54,000 BAM records, 8 threads took 14.1 s against 5.9 s
+  for 3. They now take 2.7 s with 8. They print the same progress and
+  totals as the FASTQ and FAST5 converters in place of their own lines.
+* `--basecall_id` warns that it is ignored by the FASTQ converter too, as
+  it already did for BAM and POD5; only a FAST5 has basecall groups.
 * `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One
   process used to decompress every file and pass all of its text, 1.2 GB
   for 180,000 reads, to the parsers, and adding parsers barely helped. Each
