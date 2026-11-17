@@ -11,6 +11,7 @@ families through self.
 # Standard library imports
 from collections import OrderedDict
 import datetime
+import weakref
 
 # Third party imports
 import numpy as np
@@ -77,15 +78,16 @@ class SummaryTables:
         worked out five times per report and the reference length eight.
         """
         df = self._level_dfs(df_level)[0]
-        # Each entry keeps the frame it was computed from and is used only
-        # for that same object, so a read set that has been replaced is
-        # computed again. Keying on id(df) alone could not promise that:
-        # an id is reused once its frame is freed.
+        # Each entry holds a weak reference to the frame it was computed
+        # from and is used only while that same object is the read set, so
+        # a replaced read set is computed again. Keying on id(df) could not
+        # promise that, since an id is reused once its frame is freed, and a
+        # strong reference kept a replaced frame in memory.
         cache = self.__dict__.setdefault("_metrics_cache", {})
-        frame, metrics = cache.get(df_level, (None, None))
-        if frame is not df:
+        ref, metrics = cache.get(df_level, (None, None))
+        if ref is None or ref() is not df:
             metrics = self._read_set_metrics(df)
-            cache[df_level] = (df, metrics)
+            cache[df_level] = (weakref.ref(df), metrics)
         return metrics
 
     def _read_set_metrics(self, df):

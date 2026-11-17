@@ -215,7 +215,8 @@ class Bam_to_seq_summary(ConverterPipeline):
         """Keep the asked for columns and count time from each run's start.
 
         Both --fields and --include_path were once stored and never read, so
-        they were accepted and did nothing.
+        they were accepted and did nothing. A record only carries its path
+        when --include_path is given, so it is kept here when present.
         """
         if self.fields:
             wanted = [f for f in self.fields if f != "read_id"]
@@ -230,8 +231,6 @@ class Bam_to_seq_summary(ConverterPipeline):
             if self.include_path and "path" in df.columns and "path" not in keep:
                 keep.append("path")
             df = df[["read_id"] + keep]
-        elif not self.include_path:
-            df = df.drop(columns="path", errors="ignore")
 
         # Express read start times as seconds since their own run began. A
         # directory can hold several runs, and counting from the first read

@@ -137,11 +137,6 @@ class Pod5_to_seq_summary(ConverterPipeline):
                 yield d
 
     def _finalise(self, df, notes):
-        # --include_path: the path was stored and never read, so the option
-        # did nothing.
-        if not self.include_path:
-            df = df.drop(columns="path", errors="ignore")
-
         # A POD5 file holds raw signal, not basecalls, so there is no read
         # length and no quality score to report. Earlier versions filled those
         # two columns with values drawn from np.random.normal to get past
