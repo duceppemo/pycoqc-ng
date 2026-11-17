@@ -425,11 +425,18 @@ def doc_func(func):
 
 
 def _help_defaults(cls):
-    """The defaults a converter shows where its signature has a stand in:
-    fields=None for its DEFAULT_FIELDS. Nothing for any other class."""
-    # Here rather than at the top: _pipeline imports this module.
-    from pycoQC._pipeline import ConverterPipeline
-    return cls.help_defaults() if issubclass(cls, ConverterPipeline) else {}
+    """The defaults a class shows where its signature has a stand in, as a
+    converter's fields=None does for its DEFAULT_FIELDS. Only a classmethod
+    called help_defaults is asked: anything else of that name, on a class
+    that is no converter, is left alone."""
+    hook = inspect.getattr_static(cls, "help_defaults", None)
+    return cls.help_defaults() if isinstance(hook, classmethod) else {}
+
+
+def _is_stand_in(default):
+    """None or an empty list or tuple: a default a converter replaces with its
+    own, as opposed to a real one."""
+    return default is None or (isinstance(default, (list, tuple)) and len(default) == 0)
 
 
 def make_arg_dict(func):
@@ -460,7 +467,7 @@ def make_arg_dict(func):
                         d[name]["required"] = True
                     else:
                         # Only in place of the stand in, never of a real default.
-                        d[name]["default"] = (shown[name] if name in shown and p.default is None
+                        d[name]["default"] = (shown[name] if name in shown and _is_stand_in(p.default)
                                               else p.default)
 
         # Parse the docstring in a dict

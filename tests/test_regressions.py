@@ -882,6 +882,17 @@ class _UnrelatedWithHook:
         """
 
 
+class _EmptyDefaultFastq(Fastq_to_seq_summary):
+    """A subclass whose fields default is an empty tuple, the stand in."""
+
+    def __init__(self, *args, fields=(), **kwargs):
+        """
+        * fields
+            Fields.
+        """
+        super().__init__(*args, fields=fields, **kwargs)
+
+
 class _OwnDefaultFastq(Fastq_to_seq_summary):
     """A subclass whose __init__ has a real fields default."""
 
@@ -1266,20 +1277,22 @@ class TestRecordsCarryOnlyWhatIsAsked:
         assert list(pd.read_csv(out, sep="\t").columns) == expected
 
     @pytest.mark.parametrize("fields", [
-        "", "   ", None, [], (), np.array([], dtype=str), pd.Index([]), iter([])])
+        "", "   ", None, [], (), np.array([], dtype=str), pd.Index([]), iter([]),
+        [""], ["  ", ""]])
     def test_no_names_is_the_default(self, fields):
         """An empty string became one field named "", where it had been the
-        default."""
+        default; and --fields "" reaches here as [""], which was refused
+        while "" alone was the default."""
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
         conv.include_path = False
         assert conv._requested_fields(fields) == list(Fastq_to_seq_summary.DEFAULT_FIELDS)
 
     @pytest.mark.parametrize("fields", [
-        b"channel", np.array([b"read_id", b"channel"]), [None], ["read_id", ""],
+        b"channel", np.array([b"read_id", b"channel"]), [None],
         [["read_id", "channel"]], {"channel", "run_id"}, frozenset(["channel"]), 5,
         np.array("channel"), {"read_id": 1, "channel": 2},
-        pd.Series(["a", "b"], index=["read_id", "channel"]), ["read_id", "  "],
-        np.array([["read_id", "channel"]])])
+        pd.Series(["a", "b"], index=["read_id", "channel"]),
+        pd.DataFrame({"read_id": [1]}), np.array([["read_id", "channel"]])])
     def test_anything_but_names_is_refused(self, fields):
         """str() of each item gave "b'read_id'" for bytes and "None" for None,
         bytes were split into one field per byte, a set's columns came out
@@ -1290,10 +1303,27 @@ class TestRecordsCarryOnlyWhatIsAsked:
         with pytest.raises(pycoQCError, match="fields must be"):
             conv._requested_fields(fields)
 
-    @pytest.mark.parametrize("fields", [
-        np.array(["read_id", "channel"]), [np.str_("read_id"), " channel "],
-        (n for n in ["read_id", "channel"])])
-    def test_names_are_plain_stripped_strings(self, fields):
+    def test_a_two_dimensional_array_is_named_as_such(self):
+        """It was refused as "not ndarray", in a message listing arrays as
+        accepted."""
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        with pytest.raises(pycoQCError, match="2-dimensional array"):
+            conv._requested_fields(np.array([["read_id", "channel"]]))
+
+    @pytest.mark.parametrize("make_fields", [
+        lambda: np.array(["read_id", "channel"]),
+        lambda: [np.str_("read_id"), " channel "],
+        lambda: (n for n in ["read_id", "channel"]),
+        # What pandas 3 returns for df.columns.values or a column's unique(),
+        # refused by the list of accepted types #12 had.
+        lambda: pd.array(["read_id", "channel"], dtype="string"),
+        lambda: pd.Series(["read_id", "channel"]).unique(),
+        lambda: {"read_id": 1, "channel": 2}.keys(),
+        lambda: __import__("collections").deque(["read_id", "channel"]),
+        lambda: ["read_id", "", "channel", "  "]])
+    def test_names_are_plain_stripped_strings(self, make_fields):
+        fields = make_fields()
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
         conv.include_path = False
         names = conv._requested_fields(fields)
@@ -1348,6 +1378,13 @@ class TestRecordsCarryOnlyWhatIsAsked:
     def test_a_real_default_is_not_replaced(self):
         from pycoQC.common import make_arg_dict
         assert make_arg_dict(_OwnDefaultFastq)["fields"]["default"] == ("read_id",)
+
+    def test_an_empty_default_is_a_stand_in_too(self):
+        """_requested_fields takes () as DEFAULT_FIELDS, but the help showed
+        it as a real default."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(_EmptyDefaultFastq)["fields"]["default"] == list(
+            Fastq_to_seq_summary.DEFAULT_FIELDS)
 
     def test_a_help_defaults_on_another_class_is_not_called(self):
         """Any class with a help_defaults attribute had it called, and one

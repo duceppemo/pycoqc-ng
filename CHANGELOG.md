@@ -237,12 +237,14 @@ output rather than against the test fixtures.
   FASTQ wrote empty rows and FAST5 failed, and asking for `path` alone
   without `--include_path` gives the read ids. The `fields` argument of
   `Fastq_to_seq_summary` and `Fast5_to_seq_summary` now defaults to `None`,
-  standing for the class's `DEFAULT_FIELDS`, which the notebook help shows
-  as the default; a subclass changes its default there. `fields` takes names
-  in a list, a tuple, a numpy array, a pandas Index or an iterator such as a
-  generator, or a single name as a string; a blank one is the default.
-  Anything else, such as bytes, a set, a dict, a Series or a number, is
-  refused with an error naming `fields`.
+  standing for the class's `DEFAULT_FIELDS`, which the notebook help for the
+  class (`jhelp(Fastq_to_seq_summary)`) shows as the default; a subclass
+  changes its default there. `fields` takes a single name as a string, or
+  names in any ordered iterable: a list, a tuple, a numpy or pandas array, a
+  pandas Index, `dict.keys()`, a generator. Blank names are left out, so
+  `--fields ""` is the default. Bytes, sets, dicts, Series and numbers are
+  refused with an error naming `fields`, as each gave wrong names, or
+  columns in a different order on each run.
 * FASTQ records were collected into a dict keyed by read id, so repeated
   ids merged, but only when they fell in the same 1,000 read block.
 * A bam or fastq directory holding no reads wrote an empty summary or
