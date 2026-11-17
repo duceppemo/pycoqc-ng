@@ -665,29 +665,37 @@ class TestWhichErrorIsReported:
 
 class TestWindowsHandleLimit:
     """The parent waits on a pipe and an exit per worker, and before Python
-    3.12 Windows waits on at most 63: --threads 32 failed at once."""
+    3.13 Windows waits on at most 63: --threads 32 failed at once. The cap
+    first stopped at 3.12, which has the same limit."""
 
     @pytest.mark.parametrize("platform, version, expected", [
-        ("win32", (3, 11), 31), ("win32", (3, 9), 31),
-        ("win32", (3, 12), 40), ("linux", (3, 9), 40), ("darwin", (3, 11), 40)])
+        ("win32", (3, 9), 31), ("win32", (3, 11), 31), ("win32", (3, 12), 31),
+        ("win32", (3, 13), 40), ("linux", (3, 9), 40), ("darwin", (3, 12), 40)])
     def test_threads_are_capped_only_where_needed(self, platform, version, expected):
-        from pycoQC._pipeline import thread_limit
-        assert thread_limit(40, platform, version) == expected
+        from pycoQC._pipeline import usable_threads
+        assert usable_threads(40, platform, version) == expected
 
     def test_fewer_threads_are_left_alone(self):
-        from pycoQC._pipeline import thread_limit
-        assert thread_limit(8, "win32", (3, 9)) == 8
+        from pycoQC._pipeline import usable_threads
+        assert usable_threads(8, "win32", (3, 9)) == 8
+
+    def test_too_few_threads_are_refused(self):
+        from pycoQC._pipeline import usable_threads
+        with pytest.raises(pycoQCError, match="At least 3 threads"):
+            usable_threads(2)
 
     def test_the_cap_is_applied_and_said(self, fastq_dir, tmp_path, monkeypatch, caplog):
         import pycoQC._pipeline as pipeline
-        monkeypatch.setattr(pipeline, "thread_limit", lambda threads: 3)
+        monkeypatch.setattr(pipeline, "usable_threads", lambda threads: 3)
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
         with caplog.at_level(logging.WARNING):
             conv._configure(str(fastq_dir), str(tmp_path / "s.txt"), 0, 40, 0, False, 0)
         assert conv.threads == 1
-        assert "can run at most 3 threads" in caplog.text
+        assert "--threads lowered from 40 to 3" in caplog.text
 
 
+@pytest.mark.skipif(sys.getfilesystemencoding().lower() != "utf-8",
+                    reason="the byte counts are those of UTF-8")
 class TestNameStart:
     """The staging directory kept 150 characters of the summary's name, and
     the limit is 255 bytes: 80 Chinese characters is 240."""
@@ -695,16 +703,49 @@ class TestNameStart:
     def test_a_multibyte_name_is_cut_in_bytes(self):
         from pycoQC._pipeline import name_start
         start = name_start("测" * 80)
-        assert len(os.fsencode(start)) <= 150
-        assert start == "测" * 50
+        assert start == "测" * 16
+        assert len(os.fsencode(start)) <= 50
 
     def test_a_character_is_never_cut_in_half(self):
         from pycoQC._pipeline import name_start
-        assert name_start("a" + "测" * 80) == "a" + "测" * 49
+        assert name_start("a" + "测" * 80) == "a" + "测" * 16
 
     def test_a_short_name_is_kept_whole(self):
         from pycoQC._pipeline import name_start
         assert name_start("summary.txt") == "summary.txt"
+
+    @pytest.mark.skipif(os.name != "posix", reason="undecodable bytes are a POSIX matter")
+    def test_an_undecodable_byte_is_kept(self):
+        """Decoding with errors="ignore" dropped such a byte from the middle
+        of the name, so a left over directory no longer matched its summary."""
+        from pycoQC._pipeline import name_start
+        name = os.fsdecode(b"caf\xe9.txt")
+        assert name_start(name) == name
+
+
+class TestSendError:
+
+    def test_a_closed_pipe_does_not_hide_the_interrupt(self):
+        """On Ctrl-C the parent closes its ends, and the BrokenPipeError of
+        reporting replaced the KeyboardInterrupt that stopped the worker."""
+        from multiprocessing import Pipe
+        from pycoQC._pipeline import LISTER, _send_error
+        reader, writer = Pipe(duplex=False)
+        reader.close()
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                _send_error(writer, LISTER, KeyboardInterrupt())
+        finally:
+            writer.close()
+
+    def test_an_exception_is_reported_and_not_raised(self):
+        from multiprocessing import Pipe
+        from pycoQC._pipeline import PARSER, _send_error
+        reader, writer = Pipe(duplex=False)
+        _send_error(writer, PARSER, pycoQCError("no reads"))
+        assert reader.recv() == ("error", PARSER, "no reads")
+        reader.close()
+        writer.close()
 
 
 class TestWorkersThatDieSilently:
@@ -1053,6 +1094,30 @@ class TestRecordsCarryOnlyWhatIsAsked:
                            fields=[])
         assert (list(pd.read_csv(empty, sep="\t").columns)
                 == list(pd.read_csv(every, sep="\t").columns))
+
+    def test_an_empty_field_list_is_the_fastq_default(self, fastq_dir, tmp_path):
+        """BAM took an empty list for its default and FASTQ for no fields at
+        all: every read came out empty, and the run failed on finding none."""
+        every, empty = tmp_path / "every.txt", tmp_path / "empty.txt"
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(every), threads=3)
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(empty), threads=3,
+                             fields=[])
+        assert (list(pd.read_csv(empty, sep="\t").columns)
+                == list(pd.read_csv(every, sep="\t").columns))
+
+    @pytest.mark.parametrize("converter", ["fastq", "bam"])
+    def test_path_alone_without_include_path_is_the_read_ids(
+            self, converter, fastq_dir, bam_dir, tmp_path):
+        """Path is left out, which left BAM with an empty list it took for
+        every field, and FASTQ with no fields at all."""
+        out = tmp_path / "s.txt"
+        if converter == "fastq":
+            Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out),
+                                 threads=3, fields=["path"])
+        else:
+            Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(out),
+                               threads=3, fields=["path"])
+        assert list(pd.read_csv(out, sep="\t").columns) == ["read_id"]
 
     def test_a_bam_record_has_no_path_unless_asked(self, bam_dir):
         from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary as Bam

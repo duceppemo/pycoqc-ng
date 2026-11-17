@@ -22,6 +22,7 @@ than only a worker's stderr.
 
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
+import inspect
 import logging
 import multiprocessing as mp
 import os
@@ -90,26 +91,43 @@ _SILENT_EXIT = (
 
 
 # The parent waits on two handles per worker, its pipe and its exit. Before
-# Python 3.12, Windows waits on at most 63 at once, and a run of 32 or more
-# workers failed as soon as it started.
+# Python 3.13, Windows waits on at most 63 at once, and a run of 32 or more
+# workers failed as soon as it started; 3.13 waits on more in batches.
 WINDOWS_MAX_THREADS = 31
 
 
-def thread_limit(threads, platform=sys.platform, version=sys.version_info):
-    """The most threads this Python can wait on, or `threads` if lower."""
-    if platform == "win32" and version < (3, 12):
+def usable_threads(threads, platform=sys.platform, version=sys.version_info):
+    """The threads a conversion can use: `threads`, or fewer where this
+    Python cannot wait on that many workers. Raises below the minimum.
+
+    One process lists the files and one writes the summary, so at least
+    three are needed for any parsing to happen.
+    """
+    if threads < 3:
+        raise pycoQCError("At least 3 threads required")
+    if platform == "win32" and version < (3, 13):
         return min(threads, WINDOWS_MAX_THREADS)
     return threads
 
 
-def name_start(name, limit=150):
-    """At most `limit` bytes of a file name, cut between two characters.
+def name_start(name, limit=50):
+    """The start of a file name, at most `limit` bytes, whole characters only.
 
-    The file system's limit is 255 bytes, not characters: 150 characters
-    of Chinese or Japanese is 450 bytes.
+    A staging directory is named after the summary so that one left by a
+    killed run is easy to find, and only the start of the name is needed
+    for that. The limit is in bytes: a file name holds at most 255 of them,
+    and 150 characters of Chinese is 450. The summary goes inside the
+    directory under its whole name, so a short start also keeps that path
+    within Windows' 260 characters. Bytes that are not valid in the file
+    system's encoding are kept, as one byte each.
     """
-    encoding = sys.getfilesystemencoding()
-    return os.fsencode(name)[:limit].decode(encoding, "ignore")
+    start, size = [], 0
+    for char in name:
+        size += len(os.fsencode(char))
+        if size > limit:
+            break
+        start.append(char)
+    return "".join(start)
 
 
 def wait_for_workers(workers, grace=0.5):
@@ -200,7 +218,12 @@ def _send_error(status, stage, error):
     listed. Its exit code came after the report, which is not looked at, and
     the short summary was kept as complete.
     """
-    status.send(("error", stage, format_worker_error(error)))
+    try:
+        status.send(("error", stage, format_worker_error(error)))
+    except OSError:
+        # The parent has stopped listening, as on Ctrl-C, and the error the
+        # pipe raises would only hide the one that stopped this worker.
+        pass
     if not isinstance(error, Exception):
         raise error
 
@@ -329,20 +352,20 @@ class ConverterPipeline:
         get_logger(type(self).__module__, level=self.log_level)
 
         self._log.info("Check input data and options")
-        check_converter_io(in_dir, seq_summary_fn, threads, self.kind)
+        check_converter_io(in_dir, seq_summary_fn, self.kind)
+        usable = usable_threads(threads)
+        if usable < threads:
+            self._log.warning(
+                "WARNING: --threads lowered from {} to {}: Python {}.{} on "
+                "Windows waits on at most 63 handles, two per thread. Python "
+                "3.13 and later have no such limit.".format(
+                    threads, usable, sys.version_info[0], sys.version_info[1]))
 
         self.in_dir = in_dir
         self.seq_summary_fn = seq_summary_fn
         self.max_files = max_files
-        limit = thread_limit(threads)
-        if limit < threads:
-            self._log.warning(
-                "WARNING: Python {}.{} on Windows can run at most {} threads; "
-                "using {}. Python 3.12 and later have no such limit.".format(
-                    sys.version_info[0], sys.version_info[1], limit, limit))
-            threads = limit
         # One process lists the files and one writes the summary.
-        self.threads = threads - 2
+        self.threads = usable - 2
         self.basecall_id = basecall_id
         self.include_path = include_path
         self.verbose_level = verbose_level
@@ -367,7 +390,14 @@ class ConverterPipeline:
         missing from every read, and the FAST5 one rejected it as invalid.
         With --include_path, `keep_path` leaves it where it was listed, for a
         converter that places the columns in the order asked for.
+
+        An empty list is the converter's default, as it was for BAM: the
+        FASTQ converter wrote nothing for each read and failed on finding no
+        reads. Asking for path alone, without --include_path, leaves the read
+        ids, not every field and not none.
         """
+        if fields is not None and len(fields) == 0:
+            fields = inspect.signature(type(self).__init__).parameters["fields"].default
         if fields is None:
             return None
         fields = list(dict.fromkeys(fields))
@@ -378,7 +408,7 @@ class ConverterPipeline:
                     "--include_path, so path is left out of the summary")
             if not (keep_path and self.include_path):
                 fields.remove("path")
-        return fields
+        return fields or ["read_id"]
 
     def _input_files(self):
         """Every input file under in_dir, in order, up to max_files."""
@@ -451,8 +481,7 @@ class ConverterPipeline:
             # hidden, so that one left by a killed run is easy to find. Set
             # before the workers start, which receive a copy of the path.
             directory, name = os.path.split(os.path.abspath(self.seq_summary_fn))
-            # Only the start of a long name, which with the suffix and the
-            # random part must still fit a file system's 255 byte limit.
+            # Only the start of the name: see name_start.
             staging = tempfile.mkdtemp(prefix=name_start(name) + ".pycoqc-tmp-",
                                        dir=directory)
             self._partial_fn = os.path.join(staging, name)

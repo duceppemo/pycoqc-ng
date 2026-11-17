@@ -214,7 +214,7 @@ def _run_converter(args, converter, kind, fields_help=None):
                         help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
     parser.add_argument("--threads", "-t", type=int, default=4,
                         help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
-                             "Minimum 3(default: %(default)s)")
+                             "Minimum 3, and at most 31 on Windows before Python 3.13 (default: %(default)s)")
     if kind == "fast5":
         basecall_help = ("ID of the basecalling group. By default leave to 0, but if you perform multiple "
                          "basecalling on the same fast5 files, this can be used to indicate the corresponding "

@@ -129,7 +129,7 @@ fixes fell out of.
   totals as the FASTQ and FAST5 converters in place of their own lines.
   Workers on every platform start with numpy's and pyarrow's thread pools
   capped at one thread, which the converter modules used to set for the
-  whole process on import. On Windows before Python 3.12 a conversion uses
+  whole process on import. On Windows before Python 3.13 a conversion uses
   at most 31 threads, the most the calling process can wait on there, and
   says so when it lowers `--threads`.
 * The figures in the run, basecall and alignment summary tables and in the

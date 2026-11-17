@@ -390,7 +390,7 @@ def get_logger(name=None, verbose=False, quiet=False, level=None):
     return logger
 
 
-def check_converter_io(in_dir, out_fn, threads, kind):
+def check_converter_io(in_dir, out_fn, kind):
     """The checks every converter makes before it starts.
 
     * in_dir
@@ -400,9 +400,6 @@ def check_converter_io(in_dir, out_fn, threads, kind):
     * out_fn
         Summary to write. Its directory has to be writable; a bare file
         name means the current directory.
-    * threads
-        Total threads asked for. One reads and one writes, so at least
-        three are needed for any parsing to happen.
     * kind
         Name of the input format, for the messages.
     """
@@ -410,8 +407,6 @@ def check_converter_io(in_dir, out_fn, threads, kind):
         raise pycoQCError("Cannot read the indicated {} directory: {}".format(kind, in_dir))
     if not access(path.dirname(path.abspath(out_fn)), W_OK):
         raise pycoQCError("Cannot write the indicated seq_summary_fn: {}".format(out_fn))
-    if threads < 3:
-        raise pycoQCError("At least 3 threads required")
 
 
 def doc_func(func):

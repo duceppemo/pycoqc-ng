@@ -55,7 +55,8 @@ class Bam_to_seq_summary(ConverterPipeline):
         * max_bam
             Maximum number of file to try to parse. 0 to deactivate
         * threads
-            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3(default = 4)
+            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3, and at most 31 on Windows before
+            Python 3.13 (default = 4)
         * fields
             Columns to keep in the summary, in that order. None, the default,
             or an empty list writes every field the bam files carry: run_id, channel, barcode_arrangement,
@@ -220,8 +221,9 @@ class Bam_to_seq_summary(ConverterPipeline):
         they were accepted and did nothing. A record only carries its path
         when --include_path is given, so it is kept here when present.
         """
-        # None or an empty list is every field, as an empty list always was.
-        if self.fields:
+        # None is every field. An empty list was turned into None by
+        # _requested_fields, and path alone into the read ids.
+        if self.fields is not None:
             wanted = [f for f in self.fields if f != "read_id"]
             missing = [f for f in wanted if f not in df.columns]
             if missing:

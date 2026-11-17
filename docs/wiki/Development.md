@@ -123,8 +123,8 @@ core in every worker. On Linux the workers start from a fork server that preload
 pycoQC (`_forkserver_preload.py`); the caps keep it single threaded, which matters
 because forking a process that holds threads can deadlock the child. On macOS and
 Windows they start by spawn. The calling process waits on two handles per worker, its
-pipe and its exit, and before Python 3.12 Windows waits on at most 63, so there a run
-is held to 31 threads (`thread_limit`). Either way each worker imports the calling script again
+pipe and its exit, and before Python 3.13 Windows waits on at most 63, so there a run
+is held to 31 threads (`usable_threads`). Either way each worker imports the calling script again
 as it starts, which is why a script calling a converter needs an
 `if __name__ == "__main__":` guard.
 

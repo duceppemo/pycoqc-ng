@@ -39,7 +39,8 @@ class Pod5_to_seq_summary(ConverterPipeline):
         * max_pod5
             Maximum number of file to try to parse. 0 to deactivate
         * threads
-            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3 (default = 4)
+            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3, and at most 31 on Windows before
+            Python 3.13 (default = 4)
         * basecall_id
             id of the basecalling group. By default, leave to 0, but if you perform multiple basecalling on the same pod5 files,
             this can be used to indicate the corresponding group (1, 2 ...)
