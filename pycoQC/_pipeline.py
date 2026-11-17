@@ -30,11 +30,13 @@ import sys
 import tempfile
 import threading
 from collections import Counter
+from collections.abc import Iterator
 from contextlib import contextmanager
 from multiprocessing.connection import wait as wait_ready
 from time import time
 
 # Third party imports
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -445,40 +447,37 @@ class ConverterPipeline:
 
     @staticmethod
     def _field_list(fields):
-        """`fields` as a list of names, or None.
+        """`fields` as a list of plain, stripped names, or None.
 
-        A string is one name, and an empty one is no name at all. Otherwise
-        any ordered iterable of strings will do: a list, a tuple, a numpy
-        array, a DataFrame's columns, a generator. It is made a list first,
-        since an array's truth value is ambiguous and a generator has no
-        length.
+        Accepted: one name as a string, where a blank one is no name at all,
+        or names in a list, a tuple, a one dimensional numpy array, a pandas
+        Index or an iterator such as a generator. Each name must be a string
+        with something in it. These are named rather than anything iterable
+        being taken: a string was split one field per letter, bytes one per
+        byte, a set gave its columns in a different order on each run, and a
+        dict or a Series gave its keys or its values without a word.
 
-        Anything else is refused by name rather than turned into names: a
-        string was taken one field per letter, bytes one per byte, str() of a
-        bytes name gave "b'read_id'", and a set has no order, so the columns
-        it named came out in a different order on each run.
+        An error raised by the caller's own iterator is left as it is.
         """
         if fields is None:
             return None
         if isinstance(fields, str):
-            return [fields] if fields else []
-        if isinstance(fields, (bytes, set, frozenset)):
-            raise pycoQCError(
-                "fields must be field names in order, as a list of strings, "
-                "not {}".format(type(fields).__name__))
-        try:
+            names = [fields] if fields.strip() else []
+        elif (isinstance(fields, (list, tuple, pd.Index, Iterator))
+              or (isinstance(fields, np.ndarray) and fields.ndim == 1)):
             names = list(fields)
-        except TypeError:
+        else:
             raise pycoQCError(
-                "fields must be field names, as a list of strings, not "
-                "{!r}".format(fields)) from None
+                "fields must be a field name, or field names in a list, a "
+                "tuple, an array, an Index or an iterator, not {}".format(
+                    type(fields).__name__))
         for name in names:
-            if not isinstance(name, str) or not name:
+            if not isinstance(name, str) or not name.strip():
                 raise pycoQCError(
-                    "fields must be field names, as non empty strings; got "
-                    "{!r}".format(name))
+                    "fields must be field names, as strings with something "
+                    "in them; got {!r}".format(name))
         # numpy's str_ is a str, but plain names keep the columns plain.
-        return [str(name) for name in names]
+        return [str(name).strip() for name in names]
 
     def _input_files(self):
         """Every input file under in_dir, in order, up to max_files."""

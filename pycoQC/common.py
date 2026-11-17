@@ -9,7 +9,6 @@ import inspect
 from glob import glob
 import logging
 import re
-import sys
 import traceback
 from collections import Counter, OrderedDict
 
@@ -425,23 +424,25 @@ def doc_func(func):
     return " ".join(docstr_list)
 
 
-def _defining_class(func):
-    """The class whose __init__ `func` is, or None."""
-    parts = getattr(func, "__qualname__", "").split(".")
-    if len(parts) == 2 and parts[1] == "__init__":
-        return getattr(sys.modules.get(func.__module__), parts[0], None)
-    return None
+def _help_defaults(cls):
+    """The defaults a converter shows where its signature has a stand in:
+    fields=None for its DEFAULT_FIELDS. Nothing for any other class."""
+    # Here rather than at the top: _pipeline imports this module.
+    from pycoQC._pipeline import ConverterPipeline
+    return cls.help_defaults() if issubclass(cls, ConverterPipeline) else {}
 
 
 def make_arg_dict(func):
     """Parse the arguments default value, type and doc"""
 
-    # Init method for classes. A class can give, through help_defaults, the
-    # defaults to show where its signature has a stand in, as a converter's
-    # fields=None stands for its DEFAULT_FIELDS. Its __init__ shows the same.
-    owner = func if inspect.isclass(func) else _defining_class(func)
-    shown = owner.help_defaults() if hasattr(owner, "help_defaults") else {}
+    # Init method for classes. A converter's fields=None stands for its
+    # DEFAULT_FIELDS, which the help shows for the class. Given an __init__
+    # alone, the help shows its signature as it is: the function does not
+    # say which class it is used by, and a subclass inheriting it has
+    # defaults of its own.
+    shown = {}
     if inspect.isclass(func):
+        shown = _help_defaults(func)
         func = func.__init__
 
     if inspect.isfunction(func) or inspect.ismethod(func):
@@ -458,7 +459,9 @@ def make_arg_dict(func):
                     if p.default == inspect._empty:
                         d[name]["required"] = True
                     else:
-                        d[name]["default"] = shown.get(name, p.default)
+                        # Only in place of the stand in, never of a real default.
+                        d[name]["default"] = (shown[name] if name in shown and p.default is None
+                                              else p.default)
 
         # Parse the docstring in a dict
         docstr_dict = OrderedDict()
