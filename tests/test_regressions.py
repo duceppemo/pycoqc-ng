@@ -871,26 +871,14 @@ class _UnrelatedWithFields:
 
 
 class _UnrelatedWithHook:
-    """Not a converter, with a help_defaults that cannot be called on the
-    class."""
-    help_defaults = {"fields": ["a"]}
+    """Not a converter, with a pycoqc_help_default that cannot be called."""
+    pycoqc_help_default = {"fields": ["a"]}
 
     def __init__(self, fields=None):
         """
         * fields
             Anything.
         """
-
-
-class _EmptyDefaultFastq(Fastq_to_seq_summary):
-    """A subclass whose fields default is an empty tuple, the stand in."""
-
-    def __init__(self, *args, fields=(), **kwargs):
-        """
-        * fields
-            Fields.
-        """
-        super().__init__(*args, fields=fields, **kwargs)
 
 
 class _OwnDefaultFastq(Fastq_to_seq_summary):
@@ -1292,7 +1280,8 @@ class TestRecordsCarryOnlyWhatIsAsked:
         [["read_id", "channel"]], {"channel", "run_id"}, frozenset(["channel"]), 5,
         np.array("channel"), {"read_id": 1, "channel": 2},
         pd.Series(["a", "b"], index=["read_id", "channel"]),
-        pd.DataFrame({"read_id": [1]}), np.array([["read_id", "channel"]])])
+        pd.DataFrame({"read_id": [1]}), np.array([["read_id", "channel"]]),
+        {"x": "read_id"}.values(), ["read_id", "", "channel"], ["read_id", "  "]])
     def test_anything_but_names_is_refused(self, fields):
         """str() of each item gave "b'read_id'" for bytes and "None" for None,
         bytes were split into one field per byte, a set's columns came out
@@ -1302,6 +1291,25 @@ class TestRecordsCarryOnlyWhatIsAsked:
         conv.include_path = False
         with pytest.raises(pycoQCError, match="fields must be"):
             conv._requested_fields(fields)
+
+    def test_a_file_is_refused(self, tmp_path):
+        """A file iterates over its lines, which became field names."""
+        import io
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        with pytest.raises(pycoQCError, match="a file"):
+            conv._requested_fields(io.StringIO("read_id\nchannel\n"))
+
+    def test_an_error_from_the_callers_iter_is_left_alone(self):
+        """iter() was tried and its TypeError taken for fields not being
+        iterable, so a bug in the caller's __iter__ became our error."""
+        class Names:
+            def __iter__(self):
+                raise TypeError("the caller's own __iter__")
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        with pytest.raises(TypeError, match="the caller's own __iter__"):
+            conv._requested_fields(Names())
 
     def test_a_two_dimensional_array_is_named_as_such(self):
         """It was refused as "not ndarray", in a message listing arrays as
@@ -1321,7 +1329,7 @@ class TestRecordsCarryOnlyWhatIsAsked:
         lambda: pd.Series(["read_id", "channel"]).unique(),
         lambda: {"read_id": 1, "channel": 2}.keys(),
         lambda: __import__("collections").deque(["read_id", "channel"]),
-        lambda: ["read_id", "", "channel", "  "]])
+        lambda: [" read_id", "channel\t"]])
     def test_names_are_plain_stripped_strings(self, make_fields):
         fields = make_fields()
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
@@ -1379,16 +1387,64 @@ class TestRecordsCarryOnlyWhatIsAsked:
         from pycoQC.common import make_arg_dict
         assert make_arg_dict(_OwnDefaultFastq)["fields"]["default"] == ("read_id",)
 
-    def test_an_empty_default_is_a_stand_in_too(self):
-        """_requested_fields takes () as DEFAULT_FIELDS, but the help showed
-        it as a real default."""
+    @pytest.mark.parametrize("stand_in", [(), "", np.array([], dtype=str)])
+    def test_an_empty_default_is_a_stand_in_too(self, stand_in):
+        """_requested_fields takes these as DEFAULT_FIELDS, but the help
+        showed them as real defaults: the two judged emptiness apart."""
         from pycoQC.common import make_arg_dict
-        assert make_arg_dict(_EmptyDefaultFastq)["fields"]["default"] == list(
+
+        class EmptyDefault(Fastq_to_seq_summary):
+            def __init__(self, *args, fields=stand_in, **kwargs):
+                """
+                * fields
+                    Fields.
+                """
+        assert make_arg_dict(EmptyDefault)["fields"]["default"] == list(
             Fastq_to_seq_summary.DEFAULT_FIELDS)
 
-    def test_a_help_defaults_on_another_class_is_not_called(self):
-        """Any class with a help_defaults attribute had it called, and one
-        that was not a classmethod broke the help."""
+    def test_an_array_default_does_not_break_the_help(self):
+        """The default was compared with ==, which an array answers
+        elementwise, and the help raised."""
+        from pycoQC.common import make_arg_dict
+
+        class ArrayDefault(Fastq_to_seq_summary):
+            def __init__(self, *args, fields=np.array(["read_id", "channel"]), **kwargs):
+                """
+                * fields
+                    Fields.
+                """
+        assert list(make_arg_dict(ArrayDefault)["fields"]["default"]) == ["read_id", "channel"]
+
+    def test_a_converters_own_hook_is_used_however_it_is_made(self):
+        """A subclass's hook as a staticmethod was skipped by the help, so it
+        and the command line, which called it, disagreed."""
+        from pycoQC.common import make_arg_dict
+
+        class OwnHook(Fastq_to_seq_summary):
+            @staticmethod
+            def pycoqc_help_default(name, default):
+                return ["read_id"] if name == "fields" else default
+        assert make_arg_dict(OwnHook)["fields"]["default"] == ["read_id"]
+
+    def test_another_class_with_a_like_named_classmethod_is_left_alone(self):
+        """A help_defaults classmethod on any class was called, and changed
+        its help."""
+        from pycoQC.common import make_arg_dict
+
+        class Other:
+            @classmethod
+            def help_defaults(cls):
+                return {"fields": ["zzz"]}
+
+            def __init__(self, fields=None):
+                """
+                * fields
+                    Anything.
+                """
+        assert make_arg_dict(Other)["fields"]["default"] is None
+
+    def test_a_hook_that_cannot_be_called_is_left_alone(self):
+        """A hook attribute that was not a classmethod broke the help."""
         from pycoQC.common import make_arg_dict
         assert make_arg_dict(_UnrelatedWithHook)["fields"]["default"] is None
 

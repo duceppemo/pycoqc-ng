@@ -424,19 +424,15 @@ def doc_func(func):
     return " ".join(docstr_list)
 
 
-def _help_defaults(cls):
-    """The defaults a class shows where its signature has a stand in, as a
-    converter's fields=None does for its DEFAULT_FIELDS. Only a classmethod
-    called help_defaults is asked: anything else of that name, on a class
-    that is no converter, is left alone."""
-    hook = inspect.getattr_static(cls, "help_defaults", None)
-    return cls.help_defaults() if isinstance(hook, classmethod) else {}
+def _shown_default(cls, name, default):
+    """The default the help shows for an argument of class `cls`.
 
-
-def _is_stand_in(default):
-    """None or an empty list or tuple: a default a converter replaces with its
-    own, as opposed to a real one."""
-    return default is None or (isinstance(default, (list, tuple)) and len(default) == 0)
+    A class decides through a pycoqc_help_default(name, default) of its own,
+    as a converter does to show its DEFAULT_FIELDS where its signature has a
+    stand in. The name is pycoQC's own, so no other class has one by chance.
+    """
+    hook = getattr(cls, "pycoqc_help_default", None)
+    return hook(name, default) if callable(hook) else default
 
 
 def make_arg_dict(func):
@@ -447,9 +443,9 @@ def make_arg_dict(func):
     # alone, the help shows its signature as it is: the function does not
     # say which class it is used by, and a subclass inheriting it has
     # defaults of its own.
-    shown = {}
+    owner = None
     if inspect.isclass(func):
-        shown = _help_defaults(func)
+        owner = func
         func = func.__init__
 
     if inspect.isfunction(func) or inspect.ismethod(func):
@@ -460,15 +456,17 @@ def make_arg_dict(func):
                 d[name] = OrderedDict()
                 if name not in ["kwargs","args"]: # Include but skip default required and type
                     # Get Annotation
-                    if p.annotation != inspect._empty:
+                    # `is`, not ==: a default can be an array, whose == is
+                    # elementwise and has no truth value.
+                    if p.annotation is not inspect.Parameter.empty:
                         d[name]["type"] = p.annotation
                     # Get default value if available
-                    if p.default == inspect._empty:
+                    if p.default is inspect.Parameter.empty:
                         d[name]["required"] = True
+                    elif owner is not None:
+                        d[name]["default"] = _shown_default(owner, name, p.default)
                     else:
-                        # Only in place of the stand in, never of a real default.
-                        d[name]["default"] = (shown[name] if name in shown and _is_stand_in(p.default)
-                                              else p.default)
+                        d[name]["default"] = p.default
 
         # Parse the docstring in a dict
         docstr_dict = OrderedDict()
