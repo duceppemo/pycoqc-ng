@@ -23,8 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
         include:
+          # Ubuntu 26.04, now ubuntu-latest, has no Python 3.9 build, so the
+          # oldest supported Python runs on the previous LTS image.
+          - os: ubuntu-24.04
+            python-version: "3.9"
           - os: macos-latest
             python-version: "3.12"
 

@@ -1,5 +1,172 @@
 # Changelog
 
+### Unreleased
+
+Every entry point was run against real data: the original Albacore and
+Guppy summaries, a MinKNOW R10.4.1 summary, a 1.25 million read Dorado
+summary with a minimap2 BAM, Dorado BAM and FASTQ demultiplexed by barcode,
+a PromethION POD5 and MinKNOW multi-read FAST5 files. What broke is below,
+along with a restructuring of the plotting and report code that most of the
+fixes fell out of.
+
+**Added**
+
+* Three plots on how the run went, rather than what it produced:
+  * `end_reason_over_time`: the share of reads ending each way over the run.
+    A rising share of `unblock_mux_change` means pores are clogging; on a 72
+    hour Dorado run it went from 4.6% to 14.8%. On an adaptive sampling run,
+    `data_service_unblock_mux_change` is the rejection rate.
+  * `read_speed_1D` and `read_speed_over_time`: translocation speed in bases
+    per second, measured on the strand's own time so short reads are not
+    dragged down by the adapter. The JSON report carries its median and
+    percentiles.
+  * `active_channels_over_time`: channels producing reads per 1.5 hour
+    interval, MinKNOW's mux scan cycle, in total and per mux, against the
+    flow cell's channel count.
+
+  All three are in the default report, and the two that need no basecalls in
+  the report for POD5 and raw FAST5. The JSON report counts the end reasons.
+* The converters carry what these need. `Bam_to_seq_summary` and
+  `Fastq_to_seq_summary` write `duration`, `template_duration`, `end_reason`
+  and `mux` from Dorado's `du`, `ns`, `ts`, `er` and `mx` tags (for FASTQ,
+  basecalled with `-T`). `Pod5_to_seq_summary` writes `end_reason` and `mux`,
+  and `Fast5_to_seq_summary` adds `start_mux` to its default fields. Summaries
+  from Guppy, Dorado and MinKNOW already carry these columns, and pycoQC now
+  keeps them rather than discarding them on reading.
+
+**Fixed**
+
+* Multi-read FAST5 files written by MinKNOW before it added the `file_type`
+  attribute (`file_version` 1.0 and 2.0) were taken for single read files,
+  and `Fast5_to_seq_summary` died looking for `/Raw/Reads`. They are now
+  recognised by their layout.
+* `pycoQC -v` on a run that has not been basecalled, a POD5 or MinKNOW
+  summary, printed a traceback in the middle of the run.
+* On a run with no failing reads, or no passing ones, the *Fail Reads* button
+  of the density, over time and channel plots changed nothing, so the plot
+  went on showing the previous read set under the new label.
+* `--quiet` printed every progress step, which were logged as warnings.
+* `runid_list` was ignored for a summary without start times, and is now
+  also available on the command line as `--runid_list`, as it was in the
+  original pycoQC. A single run id given as a string in Python is no longer
+  read as a list of its characters.
+* Barcode names with numbers in them are sorted as numbers everywhere,
+  so `barcode2` comes before `barcode10`; the per barcode boxplots also
+  sorted `barcode10` before `barcode2` on their own.
+* `Barcode_split` named its files `sequencing_summary_6.0.txt` for a summary
+  of numeric barcodes with a blank among them, and a barcode name holding a
+  `/` wrote outside the output directory.
+* The coverage plot drew a rectangle and a label for every reference, so an
+  assembly with 233,000 contigs made a 31 MB plot that took a minute and a
+  half. Past 100 references they are left off. With an even number of
+  references the last one was never shaded.
+* The channel activity map raised `IndexError` for a channel numbered past
+  the platform's count, and drew channel 0's reads on the last channel.
+* A summary named twice on the command line, or matched by two patterns,
+  was read twice and every count doubled. A file whose name contains
+  square brackets could not be named at all. Matches of a pattern are
+  sorted, so runs without start times come in a stable order.
+* A barcode file in none of the layouts pycoQC reads (Guppy, Deepbinner, or
+  plain `read_id` and `barcode` columns) raised `KeyError`; it now says
+  which layouts are understood.
+* Supplementary alignments were labelled `Suplementary` in the alignment
+  table and pie, and the categories came in whatever order the BAM showed
+  them, with colours handed out by position, so a category's colour changed
+  from run to run. Each category now has its own.
+* An `N` in an MD tag was not counted as a mismatch.
+* Run details such as a sample name holding `&` or `<` went into the HTML
+  page as markup: the template's name ends in `.j2`, which the escaping rule
+  did not match. Source file paths are escaped too, and the page is written
+  as UTF-8 whatever the locale.
+* A flat 2D density, as from a handful of identical reads, gave plotly a
+  contour step of zero.
+* A configuration naming something other than a plot, such as
+  `summary_stats_dict`, failed after calling it.
+* POD5 read ids repeated across files were dropped in silence, and POD5 or
+  FAST5 files holding no reads gave an empty summary rather than an error.
+* pandas 3.1 deprecates the `inplace` keyword. The four remaining
+  `inplace=True` calls now assign the result instead.
+* kaleido 1.5.1 often runs its script in the blank page it is leaving rather
+  than the one it loads, failing with "kaleido_scopes is not defined" and
+  aborting the PDF report. The `pdf` extra now excludes that version, and
+  each page gets three attempts in case of other transient browser failures.
+* The FASTQ and FAST5 converters forked their workers from a process already
+  running threads (OpenBLAS's pool, pyarrow's jemalloc, or whatever pytest
+  or a notebook had started), which can deadlock a child and which Python
+  3.12 warns about. On Linux, workers now start from a fork server, as is
+  the default from Python 3.14; macOS and Windows already used spawn. The server preloads pycoQC with those thread
+  pools held off, so it stays single threaded and the workers share its
+  imports: eight workers take about 100 MB rather than the 470 MB they
+  would importing pandas each. Starting the server adds under a second to
+  a conversion.
+* A converter worker that died without reporting, killed for memory or
+  failing as it started, left the parent waiting for ever. The parent now
+  checks its workers' exit codes and stops with an error, which for a
+  script missing its `if __name__ == "__main__":` guard says so.
+
+**Changed**
+
+* All four converters share one worker pipeline (lister, parsers, writer) in
+  `pycoQC/_pipeline.py`, rather than each carrying its own copy of the
+  queues, error handling, file listing, argument checks and cleanup. A
+  converter now supplies only how a file becomes records and any last
+  change to the table. Rows come out in the order the files are listed,
+  whatever the number of threads, and what the user is told is logged by
+  the calling process rather than a worker.
+* `Bam_to_seq_summary` and `Pod5_to_seq_summary` parse in processes rather
+  than threads. Their per-read work holds Python's GIL, so the threads only
+  took turns: on 54,000 BAM records, 8 threads took 14.1 s against 5.9 s
+  for 3. They now take 2.7 s with 8. They print the same progress and
+  totals as the FASTQ and FAST5 converters in place of their own lines.
+* The figures in the run, basecall and alignment summary tables and in the
+  JSON report are computed once per read set and shared, in place of a
+  method per figure called again by each table and again by the report.
+  The per barcode table groups the reads once rather than scanning the
+  whole run for each barcode, twice: half the time with 3 barcodes, and
+  the saving grows with the barcode count.
+* `pycoQC_plot.py`, 3,200 lines holding every plot, is split by plot family
+  into `pycoQC/plots/`: summary tables, distributions, over time, run
+  health, barcodes and alignment, each a mixin, with the read sets and
+  shared helpers in `base.py`. `pycoQC_plot` is composed from them and
+  keeps every method, so nothing that uses it changes, and the reports are
+  identical. An unused method, `_barcodes_count`, was dropped.
+* The four converter commands are built by one function, which reads each
+  `--fields` default from the converter class rather than keeping a second
+  copy of the list. The copies had drifted apart once already. The BAM
+  command's `--basecall_id` help described an option BAM ignores; it now
+  says so.
+* `--basecall_id` warns that it is ignored by the FASTQ converter too, as
+  it already did for BAM and POD5; only a FAST5 has basecall groups.
+* `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One
+  process used to decompress every file and pass all of its text, 1.2 GB
+  for 180,000 reads, to the parsers, and adding parsers barely helped. Each
+  parser now reads its own files when there are at least as many files as
+  parsers, and blocks of lines are queued only when there are fewer. Parsers
+  send records to the writer in batches rather than one read at a time.
+* The command line prints a one line `ERROR:` message and exits with status
+  1 for problems with the input, instead of a traceback. A converter's
+  worker sends back the message alone for such problems, and its traceback
+  only for a bug.
+* A plot that fails unexpectedly is reported as a warning and the rest of
+  the report is still written.
+* The per barcode boxplots are drawn from statistics computed by pycoQC
+  rather than from every sampled read, which went into the page four times:
+  two boxplots were 12 MB of a 100,000 read report. Outlier points are no
+  longer drawn. The channel map and the 2D densities are stored in single
+  precision. The Dorado run with a BAM went from a 51 MB report in 105 s to
+  12.7 MB in 17 s.
+* Importing pycoQC no longer changes the process it is imported into:
+  `FutureWarning` was silenced for every library, the converters configured
+  the root logger at INFO, switching on other libraries' debug output, and
+  set BLAS thread counts in the environment. The test suite now fails on a
+  pandas `FutureWarning` raised from pycoQC code.
+* The plotting module builds every three read set plot through the same
+  helpers, rather than five copies of the code choosing a read set and
+  building its buttons. Private helpers are no longer name mangled.
+* The HTML and PDF reports share the loop that runs the configured plots.
+* `check_arg` raises `pycoQCError` rather than a bare `Exception`. `head`
+  reads gzipped files, as its documentation said.
+
 ### 2026-10-20 — pycoqc-ng 3.1.0
 
 A report for runs that have not been basecalled, and a long list of

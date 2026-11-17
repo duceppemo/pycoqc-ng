@@ -44,19 +44,25 @@ more. Higher values add parsers.
 
 ## Why is my report so large?
 
-Every plot and the plotly runtime are embedded so the file stands alone. Tens of MB is
-normal for a barcoded run. To shrink it, lower `--sample`, or trim plots from the
-configuration, see [Configuration](Configuration).
+Every plot and the plotly runtime are embedded so the file stands alone, and the
+runtime alone is about 4.5 MB. 10 to 20 MB is normal; the channel heatmap of a
+PromethION flow cell and the 2D densities are the largest parts. To shrink it, lower
+`--sample`, trim plots from the configuration, see [Configuration](Configuration), or
+write a PDF with `-p` instead.
 
 ## The coverage plot is enormous or very slow
 
-It has one position per reference base, so a transcriptome or a draft assembly with many
-contigs is punishing. Pass `--skip_coverage_plot`.
+Coverage is binned along the references laid end to end, so its cost does not grow with
+the reference. Up to 100 references each one is labelled and alternate ones shaded;
+past that, as for a transcriptome or a fragmented assembly, the labels are left off
+because they could not be read. `--skip_coverage_plot` still leaves the plot out.
 
 ## Some plots are missing
 
 Plots are skipped when their data is not present, with a note in the log. Run with `-v`
-to see which and why.
+to see which and why. A plot that fails for any other reason is reported as a
+`WARNING: <plot> failed with ...` line and the rest of the report is still written;
+please open an issue with that line.
 
 * alignment plots need `-a` with a BAM
 * barcode plots need barcodes, in the summary or via `-b`

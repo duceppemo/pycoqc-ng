@@ -51,7 +51,16 @@ pycoQC/
   __main__.py              argument parsing for all six commands
   pycoQC.py                the top-level entry point
   pycoQC_parse.py          reads summary, barcode and BAM files into dataframes
-  pycoQC_plot.py           one method per plot, each returning a plotly figure
+  pycoQC_plot.py           composes the plot families below into one class
+  plots/                   one module per plot family, each a mixin
+    base.py                the read sets, run properties and shared helpers
+    tables.py              summary tables and the JSON report's statistics
+    distributions.py       1D and 2D read distributions
+    over_time.py           yield and distributions over the run
+    run_health.py          end reasons, active pores, channel activity
+    barcodes.py            counts and boxplots per barcode
+    alignment.py           alignment outcomes, rates and coverage
+  _pipeline.py             the worker processes the converters share
   pycoQC_report.py         assembles plots into HTML and JSON
   common.py                shared helpers, errors and logging
   *_to_seq_summary.py      the four converters
@@ -62,7 +71,8 @@ docs/wiki/                 these pages
 tests/
 ```
 
-Adding a plot means a method on `pycoQC_plot` returning a plotly figure, plus an entry
+Adding a plot means a method returning a plotly figure in the module of its family under
+`pycoQC/plots/` (a new family is a new mixin, added to the class in `pycoQC_plot.py`), plus an entry
 in `templates/pycoQC_config.json`, or in `templates/pycoQC_config_signal.json` if it
 belongs in the shorter report for runs that have not been basecalled. A plot whose data
 is missing should raise `pycoQCError`, which the report catches and skips.

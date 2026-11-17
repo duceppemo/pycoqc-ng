@@ -11,12 +11,20 @@
     "output_over_time": {
         "plot_title": "Reads generated over experiment time"
     },
+    "end_reason_over_time": {
+        "plot_title": "Read end reason over experiment time",
+        "time_bins": 100
+    },
     "read_duration_over_time": {
         "plot_title": "Time in pore over experiment time"
     },
     "channels_activity": {
         "plot_title": "Activity per channel over experiment time",
         "smooth_sigma": 1
+    },
+    "active_channels_over_time": {
+        "plot_title": "Active channels over experiment time",
+        "interval_hours": 1.5
     },
     "barcode_counts": {
         "plot_title": "Number of reads per barcode",

@@ -3,7 +3,6 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Standard library imports
-import warnings
 import datetime
 
 # Local lib import
@@ -16,8 +15,6 @@ from pycoQC import __version__ as package_version
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-# Silence futurewarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -54,8 +51,8 @@ def pycoQC(
         One can also pass multiple space separated file paths or a UNIX style regex matching multiple files
     * runid_list
         Select only specific runids to be analysed. Can also be used to force pycoQC to order the runids for
-        temporal plots, if the sequencing_summary file contain several sucessive runs. By default pycoQC analyses
-        all the runids in the file and uses the runid order as defined in the file.
+        temporal plots, if the sequencing_summary file contain several successive runs. By default pycoQC analyses
+        all the runids in the file and orders them by decreasing throughput.
     * filter_calibration
         If True read flagged as calibration strand by the software are removed
     * filter_duplicated
@@ -98,9 +95,12 @@ def pycoQC(
 
     # Set logging level
     logger = get_logger(name=__name__, verbose=verbose, quiet=quiet)
-    logger.warning("Checking arguments values")
+    logger.info("Checking arguments values")
 
-    # Save all verified values + type
+    # Save all verified values + type. A single run id passed as a string
+    # would otherwise be coerced to a list of its characters.
+    if isinstance(runid_list, str):
+        runid_list = [runid_list]
     runid_list = check_arg("runid_list", runid_list, required_type=list, allow_none=True)
     filter_calibration = check_arg("filter_calibration", filter_calibration, required_type=bool,
                                    allow_none=False)
@@ -112,7 +112,6 @@ def pycoQC(
                               allow_none=False)
     min_pass_len = check_arg("min_pass_len", min_pass_len, required_type=int, min=0, allow_none=False)
     sample = check_arg("sample", sample, required_type=int, min=0, allow_none=True)
-    html_outfile = check_arg("html_outfile", html_outfile, required_type=str, allow_none=True)
     html_outfile = check_arg("html_outfile", html_outfile, required_type=str, allow_none=True)
     report_title = check_arg("report_title", report_title, required_type=str, allow_none=True)
     config_file = check_arg("config_file", config_file, required_type=str, allow_none=True)

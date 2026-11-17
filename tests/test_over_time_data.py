@@ -15,8 +15,10 @@ from pycoQC.pycoQC_plot import pycoQC_plot
 def reference_over_time_data(df, field_name, time_bins=500, smooth_sigma=0):
     """Bin values by start time and take percentiles, one bin at a time."""
     subset = df[["start_time", field_name]].dropna()
-    data = subset[field_name].to_numpy()
-    t = (subset["start_time"] / 3600).to_numpy()
+    data = subset[field_name].to_numpy(dtype=np.float64)
+    # In double precision: start_time is stored as float32, and dividing
+    # it there put bin centres a few microhours away from the plot's.
+    t = subset["start_time"].to_numpy(dtype=np.float64) / 3600
     # The run is divided into time_bins intervals and each is labelled by
     # its centre, so a bin covers a real stretch of the run. Digitising
     # against the labels put only the reads at exactly t.min in the first
@@ -48,8 +50,8 @@ def plotter(guppy_summary):
 
 
 def call_over_time_data(plotter, field_name, smooth_sigma=0, time_bins=500):
-    """Reach the name-mangled private method."""
-    method = getattr(plotter, "_pycoQC_plot__over_time_data")
+    """Reach the private helper."""
+    method = getattr(plotter, "_over_time_data")
     return method(df_level="all", field_name=field_name,
                   smooth_sigma=smooth_sigma, time_bins=time_bins)
 

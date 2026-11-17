@@ -59,6 +59,7 @@ pycoQC -f sequencing_summary.txt -o report.html -p report.pdf
 | `--filter_calibration` | off | Drop reads flagged as calibration strand |
 | `--filter_duplicated` | off | Drop duplicate `read_id`s, keeping the first (Guppy sometimes emits a read twice) |
 | `--min_barcode_percent` | 0.1 | Barcodes below this share of reads are relabelled `unclassified` |
+| `--runid_list` | all | Report only these run ids, laid out in time in the order given. By default every run is kept and runs are ordered by decreasing throughput |
 
 ### Report
 
@@ -67,7 +68,7 @@ pycoQC -f sequencing_summary.txt -o report.html -p report.pdf
 | `--report_title` | `PycoQC report` | Title shown in the HTML |
 | `--config_file` | — | JSON file choosing and tuning the plots, see [Configuration](Configuration) |
 | `--template_file` | — | Custom Jinja2 template |
-| `--skip_coverage_plot` | off | Skip the coverage plot, useful for transcriptome references with many sequences |
+| `--skip_coverage_plot` | off | Leave the coverage plot out |
 | `--sample` | 100000 | Reads sampled for plotting, deterministically. `0` uses everything |
 | `-d`, `--default_config` | — | Print the default configuration and exit |
 
@@ -76,12 +77,16 @@ Lowering it makes a large run render faster and produces a smaller HTML file.
 
 ### Verbosity
 
-`-v` increases it, `-q` reduces it. They are mutually exclusive.
+`-v` adds debug output, `-q` leaves only warnings and errors. They are mutually exclusive.
+Progress goes to stderr, so it does not mix with anything you redirect from stdout.
 
 ### Exit codes
 
-`0` on success, `2` on a usage error such as a missing `--summary_file`. Worth knowing
-if you drive the tool from Nextflow or Snakemake, which key off the exit status.
+`0` on success, `2` on a usage error such as a missing `--summary_file`, and `1` when
+the input cannot be used, with a one line `ERROR:` message saying why: a file that is
+not there, a summary with no reads left after filtering, a barcode file in neither
+known layout. The converters exit the same way. Worth knowing if you drive the tool
+from Nextflow or Snakemake, which key off the exit status.
 
 ## Converters
 
@@ -151,10 +156,17 @@ The converters are classes with the same arguments as their commands:
 ```python
 from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 
-Fastq_to_seq_summary(fastq_dir="fastq_dir/",
-                     seq_summary_fn="sequencing_summary.txt",
-                     threads=4)
+if __name__ == "__main__":
+    Fastq_to_seq_summary(fastq_dir="fastq_dir/",
+                         seq_summary_fn="sequencing_summary.txt",
+                         threads=4)
 ```
+
+The FASTQ and FAST5 converters start worker processes from a fork server,
+and each worker imports the calling script again as it starts. In a script,
+keep the call under `if __name__ == "__main__":`, or every worker runs the
+conversion again and the converter stops with an error saying so. Notebooks
+need no guard.
 
 In a notebook, `jhelp()` renders the signature and docstring as formatted Markdown
 (requires the `notebook` extra):

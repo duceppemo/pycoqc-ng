@@ -51,8 +51,11 @@ Issues = "https://github.com/duceppemo/pycoqc-ng/issues"
 [project.optional-dependencies]
 notebook = ["ipython"]
 # Static image export for the PDF report. kaleido drives a headless browser,
-# which is why it is not a runtime requirement.
-pdf = ["kaleido>=1.0", "pypdf>=4"]
+# which is why it is not a runtime requirement. kaleido 1.5.1 enables
+# javascript events only after starting to load its page, and then often
+# runs its script in the blank page it is leaving: "kaleido_scopes is not
+# defined".
+pdf = ["kaleido>=1.0,!=1.5.1", "pypdf>=4"]
 dev = ["pytest>=7", "pytest-cov>=4", "build", "pyflakes>=3"]
 
 [project.scripts]
@@ -67,7 +70,7 @@ Barcode_split = "pycoQC.__main__:main_Barcode_split"
 # templates/ holds data rather than modules, but setuptools treats any
 # directory as importable and warns unless it is listed here too. The files
 # themselves are shipped by package-data below.
-packages = ["pycoQC", "pycoQC.templates", "pycoQC.templates.vendor"]
+packages = ["pycoQC", "pycoQC.plots", "pycoQC.templates", "pycoQC.templates.vendor"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pycoQC.__version__"}
@@ -81,6 +84,9 @@ pythonpath = ["tests"]
 addopts = "-ra"
 filterwarnings = [
     "error::DeprecationWarning:pycoQC.*",
+    # The package used to silence FutureWarning for the whole process, which
+    # hid pandas deprecations until the release that removed them.
+    "error::FutureWarning:pycoQC.*",
 ]
 
 [tool.coverage.run]
@@ -91,6 +97,9 @@ branch = true
 parallel = true
 concurrency = ["multiprocessing", "thread"]
 sigterm = true
+# Imported only by the fork server, which coverage does not follow; its
+# effect is tested from a subprocess.
+omit = ["*/pycoQC/_forkserver_preload.py"]
 
 [tool.coverage.paths]
 # Collapse an installed copy onto the source tree, so coverage measured

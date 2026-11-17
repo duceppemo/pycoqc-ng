@@ -367,7 +367,7 @@ class TestPlotBinningAlignment:
         import numpy as np
         parser = pycoQC_parse(summary_file=str(guppy_summary), quiet=True)
         p = pycoQC_plot(parser, sample=0, quiet=True)
-        helper = getattr(p, "_pycoQC_plot__channels_activity_data")
+        helper = getattr(p, "_channels_activity_data")
 
         _, reads = helper(df_level="all", count_level="reads", smooth_sigma=0)
         assert np.asarray(reads["z"][0]).sum() == len(parser.reads_df)

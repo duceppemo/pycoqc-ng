@@ -4,7 +4,6 @@
 
 # Standard library imports
 from collections import Counter, OrderedDict
-import warnings
 
 # Third party imports
 import pandas as pd
@@ -12,6 +11,7 @@ import pysam as ps
 
 # Local lib import
 from pycoQC.common import (
+    as_labels,
     dict_to_str,
     expand_file_names,
     get_logger,
@@ -20,26 +20,8 @@ from pycoQC.common import (
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-# Silence futurewarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def _as_labels(values):
-    """Barcodes as names, without turning 6 into "6.0".
-
-    A column of bare numbers, as Deepbinner writes, is typed as a number,
-    and once a merge introduces a missing value it becomes a float, so the
-    plain string of it carries a decimal point into the report, the plot
-    and the name of the file Barcode_split writes.
-    """
-    if pd.api.types.is_float_dtype(values):
-        whole = values.dropna() % 1 == 0
-        if whole.all():
-            values = values.astype("Int64")
-    return values.astype("object").where(
-        values.isna(), values.astype(str).str.strip())
-
-
 class pycoQC_parse():
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~INIT METHOD~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -67,8 +49,8 @@ class pycoQC_parse():
             One can also pass multiple space separated file paths or a UNIX style regex matching multiple files
         * runid_list
             Select only specific runids to be analysed. Can also be used to force pycoQC to order the runids for
-            temporal plots, if the sequencing_summary file contain several sucessive runs. By default pycoQC analyses
-            all the runids in the file and uses the runid order as defined in the file.
+            temporal plots, if the sequencing_summary file contain several successive runs. By default pycoQC analyses
+            all the runids in the file and orders them by decreasing throughput.
         * filter_calibration
             If True read flagged as calibration strand by the software are removed
         * filter_duplicated
@@ -91,7 +73,7 @@ class pycoQC_parse():
         self.counter = OrderedDict()
 
         # Check input files
-        self.logger.warning("Check input data files")
+        self.logger.info("Check input data files")
 
         # Expand file names and test readability
         self.summary_files_list = expand_file_names(summary_file)
@@ -112,19 +94,19 @@ class pycoQC_parse():
         else:
             self.bam_file_list = []
 
-        self.logger.warning("Parse data files")
+        self.logger.info("Parse data files")
         # Filled by _parse_summary; defined here so it always exists.
         self.run_metadata = OrderedDict()
         summary_reads_df = self._parse_summary()
         barcode_reads_df = self._parse_barcode()
         bam_reads_df, self.alignments_df, self.ref_len_dict = self._parse_bam()
 
-        self.logger.warning("Merge data")
+        self.logger.info("Merge data")
         self.reads_df = self._merge_reads_df(summary_reads_df, barcode_reads_df, bam_reads_df)
 
         # Cleanup data
         if self.cleanup:
-            self.logger.warning("Cleaning data")
+            self.logger.info("Cleaning data")
             self.reads_df = self._clean_reads_df(self.reads_df)
 
     def __str__(self):
@@ -175,7 +157,9 @@ class pycoQC_parse():
                 ("calibration", ("calibration_strand_genome_template",
                                  "calibration_strand_genome", "calibration")),
                 ("barcode", ("barcode_arrangement", "barcode")),
-                ("%GC", ("gc_percent", "%GC")))
+                ("%GC", ("gc_percent", "%GC")),
+                # FAST5 records the mux a read started on as start_mux.
+                ("mux", ("mux", "start_mux")))
 
             rename_colmanes = {}
             for target, sources in column_groups:
@@ -208,7 +192,13 @@ class pycoQC_parse():
                 optional_colnames=["read_len", "mean_qscore", "run_id",
                                    "channel", "start_time", "duration",
                                    "calibration", "barcode", "%GC",
-                                   "passes_filtering"])
+                                   "passes_filtering",
+                                   # How the run is going rather than what it
+                                   # produced: why each read ended, which of
+                                   # the channel's pores it came from, and
+                                   # the time the strand itself took, which
+                                   # gives the translocation speed.
+                                   "end_reason", "mux", "template_duration"])
 
         # Collect stats
         n = len(df)
@@ -286,6 +276,19 @@ class pycoQC_parse():
                 self.logger.debug("\t\tFound valid Deepbinner barcode file")
                 df = df.rename(columns={"read_ID": "read_id", "barcode_call": "barcode"})
 
+            # A file already holding read_id and barcode, as a custom demux
+            # script or a summary cut down to two columns writes, is used
+            # as it is. Anything else, such as a sequencing summary passed
+            # to --barcode_file by mistake, used to fail on the selection
+            # below with a KeyError that named a column and nothing else.
+            elif not ("read_id" in df and "barcode" in df):
+                raise pycoQCError(
+                    "Barcode file(s) {} are not in a recognised format. A "
+                    "Guppy barcoding summary has read_id and "
+                    "barcode_arrangement columns, a Deepbinner one read_ID "
+                    "and barcode_call, and a plain one read_id and "
+                    "barcode.".format(", ".join(self.barcode_files_list)))
+
             df = df[["read_id", "barcode"]]
             # Deepbinner writes barcodes as bare numbers, so pandas types the
             # column as int, or as float once the merge introduces a missing
@@ -295,7 +298,7 @@ class pycoQC_parse():
             # report, names its output file sequencing_summary_6.0.txt, and
             # makes sorting the labels raise. A barcode is a name, not a
             # quantity, so it is read as one.
-            df["barcode"] = _as_labels(df["barcode"])
+            df["barcode"] = as_labels(df["barcode"])
             # Overlapping barcode files repeat read ids, and a left merge on
             # a duplicated key multiplies the read rather than failing, so
             # every count came out slightly high.
@@ -341,18 +344,22 @@ class pycoQC_parse():
                     elif read.is_secondary:
                         alignments_dict["Secondary"] += 1
                     elif read.is_supplementary:
-                        alignments_dict["Suplementary"] += 1
+                        alignments_dict["Supplementary"] += 1
                     elif read.query_name in read_dict:
                         alignments_dict["Duplicated"] += 1
                     else:
                         alignments_dict["Primary"] += 1
                         read_dict[read.query_name] = self._get_read_stats(read)
 
-        # Convert alignments_dict to df
+        # Convert alignments_dict to df. The categories come in a fixed
+        # order rather than the order the BAM first showed them in, which
+        # depended on whether the first record was mapped and so gave each
+        # category a different colour in the pie from one run to the next.
         if alignments_dict:
-            alignments_df = pd.DataFrame.from_dict(alignments_dict, orient="index")
-            alignments_df.reset_index(inplace=True)
-            alignments_df.columns = ["Alignments", "Counts"]
+            order = ["Primary", "Secondary", "Supplementary", "Duplicated", "Unmapped"]
+            alignments_df = pd.DataFrame(
+                [(k, alignments_dict[k]) for k in order if alignments_dict[k]],
+                columns=["Alignments", "Counts"])
             alignments_df["Percents"] = (alignments_df["Counts"] / alignments_df["Counts"].sum() * 100).round(2)
         else:
             alignments_df = pd.DataFrame()
@@ -361,7 +368,7 @@ class pycoQC_parse():
         if read_dict:
             read_df = pd.DataFrame.from_dict(read_dict, orient="index")
             read_df.index.name = "read_id"
-            read_df.reset_index(inplace=True)
+            read_df = read_df.reset_index()
         else:
             read_df = pd.DataFrame()
 
@@ -402,7 +409,8 @@ class pycoQC_parse():
         # A converter emits a column even when it could not fill it, so an
         # entirely empty optional column means the information is absent
         # rather than that every read should be discarded.
-        for col in ("run_id", "channel", "start_time", "barcode", "%GC"):
+        for col in ("run_id", "channel", "start_time", "barcode", "%GC",
+                    "duration", "template_duration", "end_reason", "mux"):
             if col in df and df[col].isna().all():
                 self.logger.info("\tNo {} information available".format(col))
                 df = df.drop(columns=col)
@@ -417,7 +425,14 @@ class pycoQC_parse():
         # Same reasoning as the barcode file: a summary whose barcodes are
         # numbers must not be typed as numbers.
         if "barcode" in df:
-            df["barcode"] = _as_labels(df["barcode"])
+            df["barcode"] = as_labels(df["barcode"])
+
+        # End reasons are names, written in capitals by some MinKNOW
+        # versions and in lower case by others.
+        if "end_reason" in df:
+            df["end_reason"] = df["end_reason"].astype("object").where(
+                df["end_reason"].isna(),
+                df["end_reason"].astype(str).str.strip().str.lower())
 
         if "barcode" in df and df["barcode"].isna().any():
             missing = int(df["barcode"].isna().sum())
@@ -506,14 +521,16 @@ class pycoQC_parse():
             self.counter["Calibration reads discarded"] = n
             self._require_reads(df, "discarding calibration strands")
 
-        # Ordering runs in time needs both columns; without them there is
-        # nothing to order and the reads are left as they are.
-        if "run_id" not in df or "start_time" not in df:
-            self.logger.info("\tSkipping run ordering, no run_id or start_time")
-            return self._finalise_reads_df(df)
-
-        # Filter and reorder based on runid_list list if passed by user
+        # Keep only the runs asked for. This is a selection in its own
+        # right, not part of the ordering below, so it does not depend on
+        # there being start times: it used to be skipped along with the
+        # ordering, and a summary without start_time was reported in full
+        # whatever runid_list said.
         if self.runid_list:
+            if "run_id" not in df:
+                raise pycoQCError(
+                    "runid_list was given, but the summary has no run_id "
+                    "column to select runs by.")
             self.logger.info("\tSelecting run_ids passed by user")
             l = len(df)
             df = df[(df["run_id"].isin(self.runid_list))]
@@ -521,7 +538,15 @@ class pycoQC_parse():
             self.logger.debug("\t\t{:,} reads discarded".format(n))
             self.counter["Excluded runid reads discarded"] = n
             self._require_reads(df, "selecting the requested run ids")
-            runid_list = self.runid_list
+
+        # Ordering runs in time needs both columns; without them there is
+        # nothing to order and the reads are left as they are.
+        if "run_id" not in df or "start_time" not in df:
+            self.logger.info("\tSkipping run ordering, no run_id or start_time")
+            return self._finalise_reads_df(df)
+
+        if self.runid_list:
+            runid_list = list(self.runid_list)
 
         # Else sort the runids by output per time assuming that the throughput decreases over time
         else:
@@ -583,8 +608,9 @@ class pycoQC_parse():
         # instead of dropping those reads for the sake of the dtype.
         self.logger.info("\tCast value to appropriate type")
         dtypes = {"channel": "uint16", "start_time": "float32",
-                  "read_len": "uint32", "mean_qscore": "float32"}
-        nullable = {"uint16": "UInt16", "uint32": "UInt32"}
+                  "read_len": "uint32", "mean_qscore": "float32",
+                  "mux": "uint8"}
+        nullable = {"uint8": "UInt8", "uint16": "UInt16", "uint32": "UInt32"}
         cast = {}
         for col, dtype in dtypes.items():
             if col not in df:
@@ -621,7 +647,9 @@ class pycoQC_parse():
                 "run itself: how many reads, from which pores, when, and "
                 "under which barcode.")
         if len(df) < 500:
-            self.logger.warning("WARNING: Low number of reads found. This is likely to lead to errors when trying to generate plots")
+            self.logger.warning(
+                "WARNING: only {:,} reads found, so the distributions in the "
+                "report will be coarse.".format(len(df)))
 
         return df
 
@@ -653,10 +681,11 @@ class pycoQC_parse():
 
         # If not NM try to compute score from MD field
         elif read.has_tag("MD"):
-            md_err = 0
-            for i in read.get_tag("MD"):
-                if i in ["A", "T", "C", "G", "a", "t", "c", "g"]:
-                    md_err += 1
+            # Every base letter in MD is either a mismatch or, after a ^,
+            # a deleted reference base. N counts: an ambiguous reference
+            # base is still not a match, and leaving it out reported
+            # alignments over masked sequence as better than they were.
+            md_err = sum(1 for i in read.get_tag("MD") if i.isalpha())
             d["mismatch"] = md_err - d["deletion"]
             edit_dist = d["mismatch"] + d["insertion"] + d["deletion"]
             try:

@@ -4,7 +4,6 @@
 
 # Standard library imports
 from collections import OrderedDict, namedtuple
-import warnings
 import datetime
 import os
 
@@ -14,13 +13,11 @@ import pandas as pd
 # Local lib import
 from pycoQC import __package_name__ as package_name
 from pycoQC import __version__ as package_version
-from pycoQC.common import dict_to_str, get_logger, mkdir, pycoQCError
+from pycoQC.common import as_labels, dict_to_str, get_logger, mkdir, pycoQCError
 from pycoQC.pycoQC_parse import pycoQC_parse
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GLOBAL SETTINGS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-# Silence futurewarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -69,7 +66,7 @@ def barcode_split(
     logger.debug(dict_to_str(options_d))
 
     # Process data
-    logger.warning("Import data from sequencing summary file(s) and cleanup")
+    logger.info("Import data from sequencing summary file(s) and cleanup")
     logger.info("\tRead files and import in a dataframe")
     pps = pycoQC_parse(summary_file=summary_file, barcode_file=barcode_file, cleanup=False,
                        verbose=verbose, quiet=quiet)
@@ -80,8 +77,12 @@ def barcode_split(
     if not "barcode" in df:
         raise pycoQCError("No barcode information found in provided file(s)")
 
-    # Quick data cleanup
+    # Quick data cleanup. Read as names first: a column of numbers with a
+    # blank in it is typed as float, and the files came out as
+    # sequencing_summary_6.0.txt. pycoQC's own cleanup does this, but the
+    # split reads the summary without it.
     logger.info("\tCleanup missing barcodes values")
+    df["barcode"] = as_labels(df["barcode"])
     df = df.fillna({"barcode": "unclassified"})
 
     # List barcode with low frequency
@@ -100,7 +101,7 @@ def barcode_split(
     if output_dir:
         mkdir(output_dir, exist_ok=True)
 
-    logger.warning("Split data per barcode")
+    logger.info("Split data per barcode")
     for barcode, barcode_df in df.groupby("barcode"):
         logger.info("\tProcessing data for Barcode {}".format(barcode))
 
@@ -117,10 +118,14 @@ def barcode_split(
             bc_l[barcode] = bc(len(barcode_df), True)
             # Remove any field containing barcode in it
             barcode_df = barcode_df[[i for i in df.columns if not i.startswith("barcode")]]
-            # Write to file
-            file_name = os.path.join(output_dir, "sequencing_summary_{}.txt".format(barcode))
+            # Write to file. A barcode is a name from the input, and one
+            # holding a path separator wrote outside the output directory.
+            safe_name = str(barcode).replace(os.sep, "_")
+            if os.altsep:
+                safe_name = safe_name.replace(os.altsep, "_")
+            file_name = os.path.join(output_dir, "sequencing_summary_{}.txt".format(safe_name))
             barcode_df.to_csv(file_name, sep="\t", index=False)
 
     logger.info("Barcode Counts")
     bc_df = pd.DataFrame.from_dict(bc_l, orient="index")
-    logger.info(bc_df)
+    logger.info(bc_df.to_string())

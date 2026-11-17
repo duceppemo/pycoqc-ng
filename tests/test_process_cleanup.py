@@ -17,7 +17,8 @@ import multiprocessing as mp
 
 import pytest
 
-from pycoQC.common import pycoQCError, stop_processes
+from pycoQC._pipeline import stop_processes, worker_context
+from pycoQC.common import pycoQCError
 from pycoQC.Fast5_to_seq_summary import Fast5_to_seq_summary
 from pycoQC.Fastq_to_seq_summary import Fastq_to_seq_summary
 
@@ -65,8 +66,9 @@ class TestStopProcesses:
 
     def test_a_child_ignoring_sigterm_is_still_stopped(self):
         """coverage's SIGTERM handler is the real case this stands in for."""
-        ready = mp.Event()
-        ps = mp.Process(target=_ignores_sigterm, args=(ready,))
+        ctx = worker_context()
+        ready = ctx.Event()
+        ps = ctx.Process(target=_ignores_sigterm, args=(ready,))
         ps.start()
         try:
             # Without this the child is usually killed before it installs
@@ -80,7 +82,7 @@ class TestStopProcesses:
                 ps.join(5)
 
     def test_an_already_finished_child_is_not_signalled(self):
-        ps = mp.Process(target=_returns_immediately)
+        ps = worker_context().Process(target=_returns_immediately)
         ps.start()
         ps.join(10)
         stop_processes([ps], timeout=2)

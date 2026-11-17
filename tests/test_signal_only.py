@@ -134,7 +134,7 @@ class TestWhatIsReported:
         assert cells[3][0] == pytest.approx(expected)
 
     def test_reads_over_time_counts_every_read(self, signal_plotter):
-        _, data, _ = signal_plotter._pycoQC_plot__output_over_time_data(
+        _, data, _ = signal_plotter._output_over_time_data(
             "all", "reads")
         assert np.asarray(data["y"][0])[-1] == len(signal_plotter.all_df)
 
