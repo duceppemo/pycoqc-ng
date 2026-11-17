@@ -126,7 +126,8 @@ The wiki is maintained in [`docs/wiki/`](docs/wiki) and published by a workflow,
 send documentation changes as pull requests against those files rather than editing
 the wiki directly.
 
-Example reports built from the bundled test data live in `docs/pycoQC/results/`.
+An example PDF report built from the bundled test data is in
+[`docs/examples/`](docs/examples/pycoQC_report_example.pdf).
 
 ## Citing
 

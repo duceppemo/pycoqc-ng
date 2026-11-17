@@ -106,6 +106,11 @@ fixes fell out of.
 
 **Changed**
 
+* The original pycoQC 2.5.2 documentation site (`mkdocs.yml` and the pages,
+  notebooks, example data and reports under `docs/`) is removed. Nothing
+  built or linked to it, and it described the tool as it was before this
+  fork. The wiki, kept in `docs/wiki/`, is the documentation. The three
+  summaries the tests read moved to `tests/data/`.
 * All four converters share one worker pipeline (lister, parsers, writer) in
   `pycoQC/_pipeline.py`, rather than each carrying its own copy of the
   queues, error handling, file listing, argument checks and cleanup. A

@@ -27,8 +27,8 @@ pytest --cov --cov-report=term
 ```
 
 Fixtures in `tests/conftest.py` synthesise FASTQ and Dorado-style BAM so the suite needs
-no large inputs. Tests that need a real summary use the small one under
-`docs/pycoQC/data/`, and skip if it is absent.
+no large inputs. Tests that need a real summary use the Guppy and Albacore summaries in
+`tests/data/`.
 
 Coverage is configured for multiprocessing in `pyproject.toml`. The converters parse in
 worker processes, so without `concurrency = ["multiprocessing", "thread"]` that code
@@ -70,6 +70,7 @@ pycoQC/
   templates/               default config and Jinja2 template
 recipe/                    conda recipe, mirrored into bioconda
 docs/wiki/                 these pages
+docs/images/               diagrams and example figures for these pages
 tests/
 ```
 
