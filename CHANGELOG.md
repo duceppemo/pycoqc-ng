@@ -107,7 +107,10 @@ fixes fell out of.
   side, where the legend and the y axis title also were. They covered one
   or the other, and on the output and channel plots, with six buttons,
   both. Every plot's buttons now sit in a row above the plot area, under
-  the title.
+  the title; the output and channel plots have a row for reads and one
+  for bases, so they fit a narrow window. The legends moved to the right
+  of the plot area, since in the left margin a long axis title, such as
+  "Mean read PHRED quality", still ran under them.
 * The percentile labels of the distribution plots printed over one another
   wherever the percentiles were close together, which on a translocation
   speed plot left the middle three unreadable. Each label now sits a step

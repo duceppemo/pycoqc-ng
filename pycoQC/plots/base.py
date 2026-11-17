@@ -46,6 +46,15 @@ MENU_ROW = {"type": "buttons", "direction": "right",
             "x": 0, "xanchor": "left", "y": 1, "yanchor": "bottom",
             "pad": {"b": 10}}
 
+# Height of one row of buttons, for a plot with more than one.
+MENU_ROW_STEP = 36
+
+# Where a plot's legend goes: to the right of the plot area, from its top.
+# In the left hand margin it shared a column with the y axis title, and a
+# long title, such as the over time plots' "Mean read PHRED quality", ran
+# under it. Plotly widens the right margin to fit it.
+LEGEND_RIGHT = {"x": 1.02, "xanchor": "left", "y": 1, "yanchor": "top"}
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class PlotBase:
@@ -340,7 +349,14 @@ class PlotBase:
 
     @staticmethod
     def _level_menu(prepared, method):
-        """The row of buttons switching a plot between read sets.
+        """The buttons switching a plot between read sets, in rows of three.
+
+        A plot counting both reads and bases has six buttons, too wide for
+        one row once the HTML report is in a narrow window: the last ran off
+        the edge of the figure. Reads and bases get a row each, reads on top.
+        Each row is a menu of its own, which keeps its own highlighted
+        button, so every button also clears the other rows' highlight and
+        only the read set on show is marked.
 
         * prepared
             (label, *args) per button, args being what plotly's method takes:
@@ -348,9 +364,35 @@ class PlotBase:
         * method
             "restyle" or "update".
         """
-        return [dict(MENU_ROW, active=0,
-                     buttons=[dict(label=label, method=method, args=list(args))
-                              for label, *args in prepared])]
+        rows = [prepared[i:i + len(LEVELS)] for i in range(0, len(prepared), len(LEVELS))]
+        if len(rows) == 1:
+            return [dict(MENU_ROW, active=0,
+                         buttons=[dict(label=label, method=method, args=list(args))
+                                  for label, *args in prepared])]
+
+        menus = []
+        for i, row in enumerate(rows):
+            others = {"updatemenus[{}].active".format(j): -1
+                      for j in range(len(rows)) if j != i}
+            buttons = []
+            for label, trace_update, *rest in row:
+                # "update" takes the trace update, a layout update and the
+                # traces; "restyle" the trace update and the traces.
+                if method == "update":
+                    layout_update, traces = (dict(rest[0]) if rest else {}), rest[1:]
+                else:
+                    layout_update, traces = {}, rest
+                layout_update.update(others)
+                buttons.append(dict(label=label, method="update",
+                                    args=[trace_update, layout_update, *traces]))
+            pad = dict(MENU_ROW["pad"], b=MENU_ROW["pad"]["b"] + MENU_ROW_STEP * (len(rows) - 1 - i))
+            menus.append(dict(MENU_ROW, pad=pad, active=0 if i == 0 else -1, buttons=buttons))
+        return menus
+
+    @staticmethod
+    def _menu_margin(menus):
+        """Top margin making room for the title and every row of buttons."""
+        return {"t": 100 + MENU_ROW_STEP * (len(menus) - 1)}
 
     @staticmethod
     def _title(text):

@@ -276,7 +276,8 @@ def figures(tmp_path_factory, aligned_bam):
 class TestButtonsKeepClearOfLegendsAndAxes:
     """The buttons of each plot ran down the left hand side, sharing the
     margin with the legend and the y axis title, and covered one or the
-    other: six buttons on output_over_time went over both."""
+    other: six buttons on output_over_time went over both. The legends
+    stayed there after the buttons moved, and still met long titles."""
 
     def test_every_plot_with_buttons_is_drawn(self, figures):
         with_menus = {name for name, fig in figures.items()
@@ -297,6 +298,37 @@ class TestButtonsKeepClearOfLegendsAndAxes:
         for name, fig in figures.items():
             if fig.layout.updatemenus and fig.layout.legend.y is not None:
                 assert fig.layout.legend.y <= 1, name
+
+    def test_six_buttons_take_two_rows(self, figures):
+        """In one row, six buttons ran off the edge of a plot in a narrow
+        window. Each row keeps its own highlight, so every button clears the
+        other row's: only the read set on show is marked."""
+        for name in ("output_over_time", "channels_activity"):
+            layout = figures[name].layout
+            menus = layout.updatemenus
+            assert [[b.label for b in m.buttons] for m in menus] == [
+                ["All Reads", "Pass Reads", "Fail Reads"],
+                ["All Bases", "Pass Bases", "Fail Bases"]], name
+            assert [m.active for m in menus] == [0, -1], name
+            assert menus[0].pad.b > menus[1].pad.b, name    # reads on top
+            assert layout.margin.t > 100, name              # room for both
+            for i, menu in enumerate(menus):
+                for button in menu.buttons:
+                    assert button.method == "update", name
+                    assert button.args[1]["updatemenus[{}].active".format(1 - i)] == -1, name
+
+    def test_output_buttons_still_rescale_the_axis(self, figures):
+        """Splitting the rows must keep each button's own layout update."""
+        for menu in figures["output_over_time"].layout.updatemenus:
+            for button in menu.buttons:
+                assert "yaxis.range" in button.args[1]
+
+    def test_legends_stay_out_of_the_axis_title_column(self, figures):
+        """A legend left of the plot area shared that margin with the y axis
+        title, and "Mean read PHRED quality" ran under it."""
+        for name, fig in figures.items():
+            if fig.layout.yaxis.title.text and fig.layout.legend.x is not None:
+                assert fig.layout.legend.x >= 0, name
 
     def test_the_title_is_above_the_row(self, figures):
         for name, fig in figures.items():

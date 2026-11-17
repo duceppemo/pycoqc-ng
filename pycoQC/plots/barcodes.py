@@ -14,7 +14,7 @@ import plotly.graph_objs as go
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import LEVELS, MENU_ROW, PIE_MAX_BARCODES
+from pycoQC.plots.base import LEGEND_RIGHT, LEVELS, MENU_ROW, PIE_MAX_BARCODES
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Barcodes:
@@ -234,7 +234,7 @@ class Barcodes:
         layout = go.Layout(
             hovermode="closest",
             plot_bgcolor="whitesmoke",
-            legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
+            legend=LEGEND_RIGHT,
             updatemenus=self._level_menu(prepared, "restyle"),
             width=width,
             height=height,
