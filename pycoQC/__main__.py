@@ -5,7 +5,6 @@
 # Standard library imports
 import argparse
 import functools
-import inspect
 import sys
 import textwrap
 from importlib.resources import files
@@ -225,7 +224,7 @@ def _run_converter(args, converter, kind, fields_help=None):
                          "(default: %(default)s)".format(kind))
     parser.add_argument("--basecall_id", type=int, default=0, help=basecall_help)
     if fields_help:
-        default = inspect.signature(converter).parameters["fields"].default
+        default = converter.DEFAULT_FIELDS
         if default is not None:
             default = list(default)
             fields_help += "(default: %(default)s)"

@@ -226,6 +226,15 @@ class Fastq_to_seq_summary(ConverterPipeline):
     # strings compress poorly.
     GZIP_RATIO = 2.5
 
+    # Matches the --fields default of the command line, which reads it from
+    # here. The two disagreed, so calling this class directly silently
+    # dropped the pass or fail column that the command produced.
+    DEFAULT_FIELDS = ("read_id", "run_id", "channel", "start_time", "gc_percent",
+                      "sequence_length_template", "mean_qscore_template",
+                      "calibration_strand_genome_template", "barcode_arrangement",
+                      "passes_filtering", "duration", "template_duration",
+                      "end_reason", "mux")
+
     def __init__(self,
                  fastq_dir: str,
                  seq_summary_fn: str,
@@ -234,14 +243,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
                  basecall_id: int = 0,
                  verbose_level: int = 0,
                  include_path: bool = False,
-                 # Matches the --fields default of the command line. The two
-                 # disagreed, so calling this class directly silently dropped
-                 # the pass or fail column that the command produced.
-                 fields: list = ("read_id", "run_id", "channel", "start_time", "gc_percent",
-                                 "sequence_length_template", "mean_qscore_template",
-                                 "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering", "duration", "template_duration",
-                                 "end_reason", "mux")):
+                 fields: list = DEFAULT_FIELDS):
         """
         * fastq_dir
             Directory containing fastqfiles. Can contain multiple subdirectories

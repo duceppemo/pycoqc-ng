@@ -58,6 +58,14 @@ class Fast5_to_seq_summary(ConverterPipeline):
         "barcode_score": {"grp": "summary_barcoding", "attrs": "barcode_score"},
     }
 
+    # The --fields default of the command line too, which reads it from here.
+    DEFAULT_FIELDS = (
+        "read_id", "run_id", "channel", "start_time", "duration",
+        "sequence_length_template", "mean_qscore_template",
+        "calibration_strand_genome_template", "barcode_arrangement",
+        "passes_filtering", "sample_id", "device_id",
+        "flow_cell_id", "exp_start_time", "start_mux")
+
     def __init__(self,
                  fast5_dir: str,
                  seq_summary_fn: str,
@@ -66,12 +74,7 @@ class Fast5_to_seq_summary(ConverterPipeline):
                  basecall_id: int = 0,
                  verbose_level: int = 0,
                  include_path: bool = False,
-                 fields: list = (
-                         "read_id", "run_id", "channel", "start_time", "duration",
-                         "sequence_length_template", "mean_qscore_template",
-                         "calibration_strand_genome_template", "barcode_arrangement",
-                         "passes_filtering", "sample_id", "device_id",
-                         "flow_cell_id", "exp_start_time", "start_mux")):
+                 fields: list = DEFAULT_FIELDS):
         """
         * fast5_dir
             Directory containing fast5 files. Can contain multiple subdirectories

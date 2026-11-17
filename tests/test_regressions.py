@@ -748,6 +748,61 @@ class TestSendError:
         writer.close()
 
 
+    def test_an_exception_is_not_lost_with_the_pipe(self):
+        """A failed send was swallowed, so a lister whose error could not be
+        reported returned, exited cleanly, and its short summary passed for
+        a complete one."""
+        from multiprocessing import Pipe
+        from pycoQC._pipeline import LISTER, _send_error
+        reader, writer = Pipe(duplex=False)
+        reader.close()
+        try:
+            with pytest.raises(pycoQCError, match="unreadable"):
+                _send_error(writer, LISTER, pycoQCError("unreadable"))
+        finally:
+            writer.close()
+
+
+class _FakeConn:
+    """A pipe holding `messages`, which reports its end only once closed and
+    fails where a real one would block."""
+
+    def __init__(self, *messages):
+        self.messages = list(messages)
+        self.closed = False
+
+    def recv(self):
+        if self.messages:
+            return self.messages.pop(0)
+        if self.closed:
+            raise EOFError
+        raise AssertionError("recv on a drained, open pipe would block")
+
+
+class _FakeProc:
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.sentinel = object()
+        self.exitcode = 0
+
+    def join(self, timeout=None):
+        self.conn.closed = True
+
+
+class TestDuplicateReadyHandles:
+
+    def test_a_handle_listed_twice_is_read_once(self, monkeypatch):
+        """On Windows, CPython 3.13's batched wait can list a ready handle
+        twice, and the second recv on the drained pipe blocked."""
+        import pycoQC._pipeline as pipeline
+        conn = _FakeConn(("done", {"reads": 3}))
+        proc = _FakeProc(conn)
+        calls = iter([[conn, conn], [proc.sentinel, proc.sentinel]])
+        monkeypatch.setattr(pipeline, "wait_ready", lambda objects, timeout: next(calls))
+        assert pipeline.wait_for_workers([(proc, conn)]) == {"reads": 3}
+
+
 class TestWorkersThatDieSilently:
     """A worker that died without reporting, failing as it started or
     killed for memory, left the parent waiting on the error queue for ever."""
@@ -795,6 +850,13 @@ class _LateListerFailure(Fastq_to_seq_summary):
     def _work_items(self):
         yield from super()._work_items()
         raise pycoQCError("listing failed after the last file")
+
+
+class _ForwardingFastq(Fastq_to_seq_summary):
+    """A subclass whose __init__ names no fields parameter of its own."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 class _ExitingLister(Fastq_to_seq_summary):
@@ -1102,6 +1164,34 @@ class TestRecordsCarryOnlyWhatIsAsked:
         Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(every), threads=3)
         Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(empty), threads=3,
                              fields=[])
+        assert (list(pd.read_csv(empty, sep="\t").columns)
+                == list(pd.read_csv(every, sep="\t").columns))
+
+    def test_no_fields_is_the_default_for_every_converter(
+            self, fastq_dir, basecalled_fast5_dir, tmp_path):
+        """None was every field for BAM; FAST5 failed on it at once and
+        FASTQ in every worker."""
+        for name, run in [
+                ("fastq", lambda fields, out: Fastq_to_seq_summary(
+                    fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3,
+                    fields=fields)),
+                ("fast5", lambda fields, out: Fast5_to_seq_summary(
+                    fast5_dir=str(basecalled_fast5_dir), seq_summary_fn=str(out),
+                    threads=3, fields=fields))]:
+            default, none = tmp_path / (name + "_default.txt"), tmp_path / (name + "_none.txt")
+            run(Fastq_to_seq_summary.DEFAULT_FIELDS if name == "fastq"
+                else Fast5_to_seq_summary.DEFAULT_FIELDS, default)
+            run(None, none)
+            assert (list(pd.read_csv(none, sep="\t").columns)
+                    == list(pd.read_csv(default, sep="\t").columns))
+
+    def test_an_empty_list_works_for_a_subclass(self, fastq_dir, tmp_path):
+        """The default was looked up on the __init__ signature, and a
+        subclass taking *args and **kwargs has no fields parameter there."""
+        every, empty = tmp_path / "every.txt", tmp_path / "empty.txt"
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(every), threads=3)
+        _ForwardingFastq(fastq_dir=str(fastq_dir), seq_summary_fn=str(empty), threads=3,
+                         fields=[])
         assert (list(pd.read_csv(empty, sep="\t").columns)
                 == list(pd.read_csv(every, sep="\t").columns))
 

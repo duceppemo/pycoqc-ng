@@ -230,9 +230,12 @@ output rather than against the test fixtures.
   `Bam_to_seq_summary`, as was `--include_path` by `Pod5_to_seq_summary`;
   `--basecall_id` now says it has no meaning for those formats rather than
   being silently dropped. `Fast5_to_seq_summary`'s command line default
-  left out four run level fields its Python default includes. A field named
-  twice in `--fields` is read and counted once; the BAM converter wrote it
-  as two columns.
+  left out four run level fields its Python default includes; both now come
+  from one `DEFAULT_FIELDS` per converter. A field named twice in `--fields`
+  is read and counted once; the BAM converter wrote it as two columns. In
+  Python, `fields=None` or `fields=[]` gives the converter's default, where
+  FASTQ wrote empty rows and FAST5 failed, and asking for `path` alone
+  without `--include_path` gives the read ids.
 * FASTQ records were collected into a dict keyed by read id, so repeated
   ids merged, but only when they fell in the same 1,000 read block.
 * A bam or fastq directory holding no reads wrote an empty summary or
