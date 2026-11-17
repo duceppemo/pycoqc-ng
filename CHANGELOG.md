@@ -1,5 +1,27 @@
 # Changelog
 
+### Unreleased
+
+**Fixed**
+
+* The alignment rate table ran its figures into one another. Counts were
+  written as `5.459e+8` and small shares in full, such as `0.0000012800%`,
+  wider than the column. Counts now carry a unit (`545.85 Mb`) and shares
+  three significant figures, with anything under 0.001% shown as
+  `≤0.001%`. The table sits above the flow diagram rather than beside it,
+  so its cells no longer wrap in a narrow window, pushing its last rows out
+  of the bottom.
+* The flow diagram beside it placed every node by a fixed position, which
+  went to the wrong node when plotly left out one nothing flows into: with
+  no unmapped reads, "Mapped reads" was drawn at the foot of the plot, half
+  off it, and the error nodes printed over one another. Plotly lays it out
+  now, from the left where the installed plotly can, and flows of nothing
+  are left out.
+* The alignment status table wrote its counts without thousands separators
+  and its shares without a % sign, and a narrow window squeezed its headers
+  into one another. The pie beside it lost its legend, which only repeated
+  the labels on its slices, to give the table more room.
+
 ### 2026-11-17 — pycoqc-ng 3.2.0
 
 Every entry point was run against real data: the original Albacore and

@@ -22,6 +22,35 @@ from plotly.subplots import make_subplots
 from pycoQC.common import pycoQCError
 from pycoQC.plots.base import COVERAGE_MAX_LABELLED_REFS, LEGEND_RIGHT, MENU_ROW
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~FUNCTIONS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def _bases_text(n):
+    """A base count with its unit, short enough for the table's column."""
+    n = float(n)
+    for size, unit in ((1e9, "Gb"), (1e6, "Mb"), (1e3, "kb")):
+        if abs(n) >= size:
+            return "{:.2f} {}".format(n / size, unit)
+    return "{:,.0f} b".format(n)
+
+
+def _share_text(fraction):
+    """A share as a percentage, to three significant figures.
+
+    plotly's ".3p" wrote every decimal place out, so the share of a few
+    hundred bases in half a gigabase came out as 0.0000012800%, wider than
+    its column, and ran into the next one.
+    """
+    percent = float(fraction) * 100
+    if not np.isfinite(percent):
+        return ""
+    if percent == 0:
+        return "0%"
+    if abs(percent) < 0.001:
+        # Not "<": plotly sizes a table cell holding one, escaped or not,
+        # as if it were a tag, and the row came out taller than the others.
+        return "≤0.001%"
+    return "{:.3g}%".format(percent) if abs(percent) < 1000 else "{:,.0f}%".format(percent)
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Alignment:
     def alignment_reads_status(
@@ -47,15 +76,23 @@ class Alignment:
         self.logger.info("\t\tComputing plot")
 
         df = self.alignments_df
-        # Create empty multiplot figure
-        fig = make_subplots(rows=1, cols=2, column_widths=[0.4, 0.6], specs=[[{"type": "table"}, {"type": "pie"}]])
+        # Create empty multiplot figure. More than half the width for the
+        # table: with two fifths, a narrow window squeezed its headers and
+        # counts into one another, and the pie needs less.
+        fig = make_subplots(rows=1, cols=2, column_widths=[0.55, 0.45], specs=[[{"type": "table"}, {"type": "pie"}]])
 
         # plot Table
         data = go.Table(
             columnwidth=[3, 2, 2],
-            header={"values": list(df.columns), "align": "center", "fill_color": "grey", "font_size": 14,
+            header={"values": list(df.columns), "align": "center", "fill_color": "grey", "font_size": 12,
                     "font_color": "white", "height": 40},
-            cells={"values": df.values.T, "align": "center", "fill_color": "whitesmoke", "font_size": 12, "height": 30})
+            # Counts with thousands separators and shares with a % sign, as
+            # the report's other tables write them; "58202" and "74.41"
+            # were the bare numbers.
+            cells={"values": [df["Alignments"],
+                              ["{:,}".format(int(n)) for n in df["Counts"]],
+                              ["{:.2f}%".format(p) for p in df["Percents"]]],
+                   "align": "center", "fill_color": "whitesmoke", "font_size": 12, "height": 30})
         fig.add_trace(data, row=1, col=1)
 
         # plot Pie plot. Each colour belongs to a category, in the parser's
@@ -70,7 +107,10 @@ class Alignment:
             sort=False,
             marker={"colors": slice_colors},
             name="Pie plot",
-            textinfo='label+percent')
+            textinfo='label+percent',
+            # Each slice is labelled, so a legend only repeated the names,
+            # in room the table needed.
+            showlegend=False)
         fig.add_trace(data, row=1, col=2)
 
         # Change the layout
@@ -86,7 +126,7 @@ class Alignment:
             colors: list = ("#fcaf94", "#828282", "#fc8161", "#828282", "#f44f39", "#d52221", "#828282",
                             "#828282", "#828282", "#828282"),
             width: int = None,
-            height: int = 600,
+            height: int = 1000,
             plot_title: str = "Bases alignment rate"):
         """
         Plot a basic alignment summary
@@ -129,40 +169,62 @@ class Alignment:
 
         # plot Table
         data1 = go.Table(
-            columnwidth=[3, 2, 2, 2],
+            columnwidth=[3, 2.4, 2, 2],
             header={
                 "values": ["Bases", "Bases Count", "% Total", "% Aligned"],
                 "align": "center", "fill_color": ["grey"], "font_size": 14, "font_color": "white", "height": 40},
             cells={
-                "values": df.values.T, "format": ["", ".3e", ".3p", ".3p"],
+                "values": [df["Bases"],
+                           [_bases_text(n) for n in df["Counts"]],
+                           [_share_text(f) for f in df["Total_freq"]],
+                           [_share_text(f) for f in df["Aligned_freq"]]],
                 "align": "center", "fill_color": "whitesmoke", "font_size": 12, "height": 30})
 
-        data2 = go.Sankey(
-            arrangement="freeform",
-            node=go.sankey.Node(
-                pad=20,
-                thickness=30,
-                line={"width": 0},
-                label=df["Bases"].values,
-                x=[0, 0.25, 0.25, 0.5, 0.5, 1, 0.75],
-                y=[0, 1, 0, 0.9, 0, 0, 0.8],
-                color=colors),
-            link=go.sankey.Link(
-                source=[0, 0, 2, 2, 4, 4, 6, 6, 6],
-                target=[1, 2, 3, 4, 5, 6, 7, 8, 9],
-                value=df["Counts"].values[1:],
-                hoverinfo="none"))
+        data2 = self._alignment_flow(df["Bases"].tolist(), df["Counts"].tolist(), list(colors))
 
         # Create multipanel figure
-        fig = make_subplots(rows=1, cols=2, column_widths=[0.4, 0.6], specs=[[{"type": "table"}, {"type": "sankey"}]])
+        # The table above the diagram, each the full width. Side by side, the
+        # table's cells wrapped onto a second line in a narrow figure, and
+        # the taller rows pushed the last of them out of the bottom of it.
+        fig = make_subplots(rows=2, cols=1, row_heights=[0.46, 0.54], vertical_spacing=0.05,
+                            specs=[[{"type": "table"}], [{"type": "sankey"}]])
         fig.add_trace(data1, row=1, col=1)
-        fig.add_trace(data2, row=1, col=2)
+        fig.add_trace(data2, row=2, col=1)
         fig.update_layout(
             width=width,
             height=height,
             title=self._title(plot_title))
 
         return fig
+
+    @staticmethod
+    def _alignment_flow(labels, counts, colors):
+        """The Sankey diagram of where the basecalled bases went.
+
+        Laid out by plotly. Each node used to be given a fixed position,
+        which assumed every one was drawn, but plotly leaves out a node
+        nothing flows into, and the positions then went to the wrong nodes:
+        with no unmapped reads, "Mapped reads" was put at the foot of the
+        plot, half off it. Flows of nothing are left out. The nodes are lined
+        up from the left where plotly can, so that unmapped reads sit beside
+        mapped reads rather than in the last column with everything else
+        nothing flows out of. Older plotly has no such setting.
+        """
+        # Node i flows from parents[i].
+        parents = {1: 0, 2: 0, 3: 2, 4: 2, 5: 4, 6: 4, 7: 6, 8: 6, 9: 6}
+        links = [(parents[i], i, counts[i]) for i in parents if counts[i] > 0]
+        node = dict(pad=15, thickness=20, line={"width": 0},
+                    label=list(labels), color=list(colors))
+        if "align" in go.sankey.Node._valid_props:
+            node["align"] = "left"
+        return go.Sankey(
+            arrangement="snap",
+            node=node,
+            link=go.sankey.Link(
+                source=[s for s, _, _ in links],
+                target=[t for _, t, _ in links],
+                value=[v for _, _, v in links],
+                hoverinfo="none"))
 
     def alignment_coverage(
             self,
