@@ -78,10 +78,11 @@ def _current_user():
         return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
 
 
-# kaleido starts a headless browser for each image and, now and then, runs
-# its script before the page holding it has loaded ("kaleido_scopes is not
-# defined"). A second try in a fresh browser goes through, so each page gets
-# a few before the error is taken as a broken rendering engine.
+# kaleido starts a headless browser for each image, and starting one can fail
+# for reasons that do not recur on the next try (kaleido 1.5.1 often ran its
+# script in the wrong page, failing with "kaleido_scopes is not defined").
+# Each page gets a few attempts before the error is taken as a broken
+# rendering engine.
 PDF_RENDER_ATTEMPTS = 3
 
 

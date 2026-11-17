@@ -86,9 +86,10 @@ fixes fell out of.
   FAST5 files holding no reads gave an empty summary rather than an error.
 * pandas 3.1 deprecates the `inplace` keyword. The four remaining
   `inplace=True` calls now assign the result instead.
-* kaleido occasionally runs its script before its page has loaded and fails
-  with "kaleido_scopes is not defined", which aborted the whole PDF report.
-  Each page now gets three attempts.
+* kaleido 1.5.1 often runs its script in the blank page it is leaving rather
+  than the one it loads, failing with "kaleido_scopes is not defined" and
+  aborting the PDF report. The `pdf` extra now excludes that version, and
+  each page gets three attempts in case of other transient browser failures.
 
 **Changed**
 
