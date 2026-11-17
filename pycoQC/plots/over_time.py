@@ -16,7 +16,7 @@ import plotly.graph_objs as go
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import LEVELS
+from pycoQC.plots.base import LEGEND_RIGHT, LEVELS
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class OverTime:
@@ -74,12 +74,14 @@ class OverTime:
                  for i in range(2, len(dd1["x"]))]
 
         # tweak plot layout
+        menus = self._level_menu(prepared, "update")
         layout = go.Layout(
             plot_bgcolor="whitesmoke",
             width=width,
             height=height,
-            updatemenus=self._level_menu(prepared, "update"),
-            legend={"x": -0.05, "y": 1, "xanchor": 'right', "yanchor": 'top'},
+            updatemenus=menus,
+            margin=self._menu_margin(menus),
+            legend=LEGEND_RIGHT,
             title=self._title(plot_title),
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
             yaxis={"title": "Count", "zeroline": False, "showline": True, "fixedrange": True,
@@ -525,7 +527,7 @@ class OverTime:
             width=width,
             height=height,
             updatemenus=self._level_menu(prepared, "restyle"),
-            legend={"x": -0.07, "y": 1, "xanchor": 'right', "yanchor": 'top'},
+            legend=LEGEND_RIGHT,
             title=self._title(plot_title),
             yaxis={"title": y_lab, "zeroline": False, "type": y_scale, "showline": True,
                    "rangemode": 'nonnegative', "fixedrange": True},

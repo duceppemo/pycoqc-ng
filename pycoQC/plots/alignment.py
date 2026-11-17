@@ -20,7 +20,7 @@ from plotly.subplots import make_subplots
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import COVERAGE_MAX_LABELLED_REFS, MENU_ROW
+from pycoQC.plots.base import COVERAGE_MAX_LABELLED_REFS, LEGEND_RIGHT, MENU_ROW
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Alignment:
@@ -272,7 +272,7 @@ class Alignment:
             updatemenus=updatemenus,
             shapes=shapes,
             hovermode="closest",
-            legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
+            legend=LEGEND_RIGHT,
             xaxis={"zeroline": False, "showline": True, "ticktext": x_lab, "tickvals": x_lab_coord,
                    "tickangle": -45, "showgrid": False, "title": x_title},
             yaxis={"title": "Mean Coverage", "type": "log", "zeroline": False, "fixedrange": True},

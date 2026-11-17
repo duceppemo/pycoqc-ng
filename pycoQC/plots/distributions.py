@@ -15,7 +15,7 @@ import plotly.graph_objs as go
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import LEVELS
+from pycoQC.plots.base import LEGEND_RIGHT, LEVELS
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Distributions:
@@ -264,7 +264,7 @@ class Distributions:
         layout = go.Layout(
             hovermode="closest",
             plot_bgcolor="whitesmoke",
-            legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
+            legend=LEGEND_RIGHT,
             updatemenus=self._level_menu(prepared, "update"),
             width=width,
             height=height,
@@ -606,7 +606,10 @@ class Distributions:
         data = [
             go.Contour(x=dd1["x"][0], y=dd1["y"][0], z=dd1["z"][0], contours=dd1["contours"][0],
                        name="Density", hoverinfo="name+x+y", colorscale=colorscale, showlegend=True,
-                       connectgaps=True, line={"width": 0}),
+                       connectgaps=True, line={"width": 0},
+                       # Shortened to leave the legend room above it, on
+                       # the same side.
+                       colorbar={"len": 0.7, "y": 0, "yanchor": "bottom"}),
             go.Scatter(x=dd1["x"][1], y=dd1["y"][1],
                        mode='markers', name='Median', hoverinfo="name+x+y",
                        marker={"size": 12, "color": 'black', "symbol": "x"})]
@@ -615,7 +618,7 @@ class Distributions:
         layout = go.Layout(
             hovermode="closest",
             plot_bgcolor="whitesmoke",
-            legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
+            legend=LEGEND_RIGHT,
             updatemenus=self._level_menu(prepared, "restyle"),
             width=width,
             height=height,
