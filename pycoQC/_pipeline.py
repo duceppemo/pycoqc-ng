@@ -30,7 +30,7 @@ import sys
 import tempfile
 import threading
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Mapping
 from contextlib import contextmanager
 from multiprocessing.connection import wait as wait_ready
 from time import time
@@ -449,35 +449,49 @@ class ConverterPipeline:
     def _field_list(fields):
         """`fields` as a list of plain, stripped names, or None.
 
-        Accepted: one name as a string, where a blank one is no name at all,
-        or names in a list, a tuple, a one dimensional numpy array, a pandas
-        Index or an iterator such as a generator. Each name must be a string
-        with something in it. These are named rather than anything iterable
-        being taken: a string was split one field per letter, bytes one per
-        byte, a set gave its columns in a different order on each run, and a
-        dict or a Series gave its keys or its values without a word.
+        A string is one name. Anything else that can be iterated gives its
+        names in the order it gives them: a list, a tuple, a one dimensional
+        array of any kind (numpy's, or the string arrays pandas 3 returns), a
+        pandas Index, dict.keys(), a generator. Blank names are left out, so
+        "" alone, or --fields "", is the default.
 
-        An error raised by the caller's own iterator is left as it is.
+        A few iterables are refused, as each gave wrong names without a word:
+        a string split one field per letter, bytes one per byte, a set gave
+        its columns in a different order on each run, and a dict or a Series
+        gave its keys or its values. Each name must be a string. An iterator
+        is taken as it comes, so one over a set has that set's order. An
+        error raised by the caller's own iterator is left as it is.
         """
         if fields is None:
             return None
         if isinstance(fields, str):
-            names = [fields] if fields.strip() else []
-        elif (isinstance(fields, (list, tuple, pd.Index, Iterator))
-              or (isinstance(fields, np.ndarray) and fields.ndim == 1)):
-            names = list(fields)
+            fields = [fields]
+        refused = None
+        if isinstance(fields, (bytes, bytearray)):
+            refused = "bytes; give names as strings"
+        elif isinstance(fields, (set, frozenset)):
+            refused = "a set, which has no order; give a list"
+        elif isinstance(fields, (Mapping, pd.Series, pd.DataFrame)):
+            refused = "a {}; give its names as a list".format(type(fields).__name__)
+        elif isinstance(fields, np.ndarray) and fields.ndim != 1:
+            refused = "a {}-dimensional array; give a list".format(fields.ndim)
         else:
-            raise pycoQCError(
-                "fields must be a field name, or field names in a list, a "
-                "tuple, an array, an Index or an iterator, not {}".format(
-                    type(fields).__name__))
-        for name in names:
-            if not isinstance(name, str) or not name.strip():
+            try:
+                fields = iter(fields)
+            except TypeError:
+                refused = "a {}".format(type(fields).__name__)
+        if refused:
+            raise pycoQCError("fields must be field names, not " + refused)
+        names = []
+        for name in fields:
+            if not isinstance(name, str):
                 raise pycoQCError(
-                    "fields must be field names, as strings with something "
-                    "in them; got {!r}".format(name))
-        # numpy's str_ is a str, but plain names keep the columns plain.
-        return [str(name).strip() for name in names]
+                    "fields must be field names, as strings; got {!r}".format(name))
+            # numpy's str_ is a str, but plain names keep the columns plain.
+            name = str(name).strip()
+            if name:
+                names.append(name)
+        return names
 
     def _input_files(self):
         """Every input file under in_dir, in order, up to max_files."""
