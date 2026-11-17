@@ -182,6 +182,13 @@ class PlotBase:
     def __repr__(self):
         return "[{}]\n".format(self.__class__.__name__)
 
+    def __getstate__(self):
+        # The figures cache holds weak references, which cannot be pickled
+        # or deep copied, and is rebuilt on demand anyway.
+        state = self.__dict__.copy()
+        state.pop("_metrics_cache", None)
+        return state
+
     @property
     def has_barcodes(self):
         return "barcode" in self.all_df

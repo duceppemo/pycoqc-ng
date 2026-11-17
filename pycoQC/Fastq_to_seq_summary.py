@@ -40,9 +40,14 @@ class FastqParser(object):
             yield chunk
 
     @staticmethod
+    def is_gzipped(fastq_fn):
+        """Whether a fastq file is read as gzip, by its name."""
+        return fastq_fn.endswith('.gz')
+
+    @staticmethod
     def open_fastq(fastq_fn):
         """Open a fastq file, transparently handling gzip compression"""
-        if fastq_fn.endswith('.gz'):
+        if FastqParser.is_gzipped(fastq_fn):
             return gzip.open(fastq_fn, "rt")
         return open(fastq_fn, "r")
 
@@ -288,7 +293,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
         files = list(self._input_files())
         # The work in a file is its reads, so a gzipped file is weighed by
         # roughly what it holds rather than what it takes on disk.
-        sizes = [os.path.getsize(fn) * (self.GZIP_RATIO if fn.endswith(".gz") else 1)
+        sizes = [os.path.getsize(fn) * (self.GZIP_RATIO if FastqParser.is_gzipped(fn) else 1)
                  for fn in files]
         # A quarter over an even share is still taken whole, so files of
         # about the same size are not split for being a little over average.
