@@ -93,8 +93,8 @@ fixes fell out of.
 * The FASTQ and FAST5 converters forked their workers from a process already
   running threads (OpenBLAS's pool, pyarrow's jemalloc, or whatever pytest
   or a notebook had started), which can deadlock a child and which Python
-  3.12 warns about. Workers now start from a fork server, as is the Linux
-  default from Python 3.14. The server preloads pycoQC with those thread
+  3.12 warns about. On Linux, workers now start from a fork server, as is
+  the default from Python 3.14; macOS and Windows already used spawn. The server preloads pycoQC with those thread
   pools held off, so it stays single threaded and the workers share its
   imports: eight workers take about 100 MB rather than the 470 MB they
   would importing pandas each. Starting the server adds under a second to

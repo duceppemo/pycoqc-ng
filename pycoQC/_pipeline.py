@@ -24,6 +24,7 @@ than only a worker's stderr.
 import logging
 import multiprocessing as mp
 import queue
+import sys
 from collections import Counter
 from time import time
 
@@ -46,8 +47,12 @@ def worker_context():
     Python 3.12 warns about it whenever the parent has a thread running, as
     it does under pytest, in a notebook or once numpy or pandas has started
     one. A fork server forks from a clean single threaded process instead,
-    and is the Linux default from Python 3.14. Windows has no fork server,
-    so spawn there.
+    and is the Linux default from Python 3.14.
+
+    Elsewhere, spawn, as Python itself does. Windows has no fork server, and
+    on macOS forking a process that has loaded the system frameworks is
+    unsafe whatever its threads. The fork server still held a thread there,
+    BLAS pools capped or not, and warned on every fork.
 
     The server preloads pycoQC through _forkserver_preload, which keeps
     numpy's BLAS and pyarrow's jemalloc from starting threads in it, so
@@ -56,7 +61,7 @@ def worker_context():
     its default, the server imports the parent's main module, threads and
     all, and warns on every fork.
     """
-    if "forkserver" not in mp.get_all_start_methods():
+    if not sys.platform.startswith("linux"):
         return mp.get_context("spawn")
     ctx = mp.get_context("forkserver")
     ctx.set_forkserver_preload(["pycoQC._forkserver_preload"])
