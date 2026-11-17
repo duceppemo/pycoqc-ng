@@ -5,6 +5,7 @@
 # Standard library imports
 import argparse
 import functools
+import inspect
 import sys
 import textwrap
 from importlib.resources import files
@@ -180,214 +181,87 @@ def main_pycoQC(args=None):
         quiet=args.quiet)
 
 
-#~~~~~~~~~~~~~~Fast5_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~CONVERTER CLI ENTRY POINTS~~~~~~~~~~~~~~#
+def _run_converter(args, converter, kind, fields_help=None):
+    """Parse a converter's command line and run it.
+
+    The four converters take the same options, so the parser is built once
+    here. The --fields default is read from the converter itself: two copies
+    of each list, one here and one in the class, had already drifted apart
+    once, and a summary built from the command line lacked the columns the
+    same call from Python wrote.
+
+    * kind
+        The input format, which names the --<kind>_dir and --max_<kind>
+        options and the converter's own arguments.
+    * fields_help
+        Help for --fields, for a converter that has the option.
+    """
+    if args is None:
+        args = sys.argv[1:]
+
+    parser = argparse.ArgumentParser(
+        description="{} generate a sequencing summary like file from a directory containing "
+                    "{} files".format(converter.__name__, kind))
+    parser.add_argument('--version', '-v', action='version', version="{} v{}".format(
+        package_name, package_version))
+    parser.add_argument("--{}_dir".format(kind), "-f", required=True, type=str,
+                        help="Directory containing {} files. Can contain multiple subdirectories".format(kind))
+    parser.add_argument("--seq_summary_fn", "-s", required=True, type=str,
+                        help="Path of the summary sequencing file where to write the data extracted from the "
+                             "{} files".format(kind))
+    parser.add_argument("--max_{}".format(kind), type=int, default=0,
+                        help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
+    parser.add_argument("--threads", "-t", type=int, default=4,
+                        help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
+                             "Minimum 3(default: %(default)s)")
+    if kind == "fast5":
+        basecall_help = ("ID of the basecalling group. By default leave to 0, but if you perform multiple "
+                         "basecalling on the same fast5 files, this can be used to indicate the corresponding "
+                         "group(1, 2 ...)(default: %(default)s)")
+    else:
+        basecall_help = ("Selects one of several basecalling groups inside a FAST5. It has no meaning for {} "
+                         "input and is ignored. Kept so existing command lines keep working"
+                         "(default: %(default)s)".format(kind))
+    parser.add_argument("--basecall_id", type=int, default=0, help=basecall_help)
+    if fields_help:
+        default = inspect.signature(converter).parameters["fields"].default
+        if default is not None:
+            default = list(default)
+            fields_help += "(default: %(default)s)"
+        parser.add_argument("--fields", type=str, nargs="+", default=default,
+                            help=fields_help)
+    parser.add_argument("--include_path", action='store_true', default=False,
+                        help="If given, the absolute path to the corresponding file is added in an extra "
+                             "column(default: %(default)s)")
+    parser.add_argument("--verbose_level", type=int, default=0,
+                        help="Level of verbosity, from 2(Chatty) to 0(Nothing)(default: %(default)s)")
+
+    args = vars(parser.parse_args(args))
+    converter(**args)
+
+
 @_report_errors
 def main_Fast5_to_seq_summary(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
-    # Define parser object
-    parser = argparse.ArgumentParser(
-        description="Fast5_to_seq_summary generate a sequencing summary like file from a directory "
-                    "containing Fast5 files")
-    parser.add_argument('--version', '-v', action='version', version="{} v{}".format(
-        package_name, package_version))
-    # Define arguments
-    parser.add_argument("--fast5_dir", "-f", required=True, type=str,
-                        help="Directory containing fast5 files. Can contain multiple subdirectories")
-    parser.add_argument("--seq_summary_fn", "-s", required=True, type=str,
-                        help="path of the summary sequencing file where to write the data extracted from the "
-                             "fast5 files")
-    parser.add_argument("--max_fast5", type=int, default=0,
-                        help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
-    parser.add_argument("--threads", "-t", type=int, default=4,
-                        help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
-                             "Minimum 3(default: %(default)s)")
-    parser.add_argument("--basecall_id", type=int, default=0,
-                        help=textwrap.dedent("ID of the basecalling group. By default leave to 0, but if you perform "
-                                             "multiple basecalling on the same fast5 files, this can be used to "
-                                             "indicate the corresponding group(1, 2 ...)(default: %(default)s)"))
-    # Kept in step with Fast5_to_seq_summary's own default. Four run level
-    # fields were missing here, so a summary built from the command line
-    # described the reads but not the run, and the report's run panel was
-    # empty while the same call from Python filled it.
-    parser.add_argument("--fields", type=str, nargs="+",
-                        default=["read_id", "run_id", "channel", "start_time", "duration",
-                                 "sequence_length_template", "mean_qscore_template",
-                                 "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering", "sample_id", "device_id", "flow_cell_id",
-                                 "exp_start_time", "start_mux"],
-                        help="List of field names corresponding to attributes to try to fetch from the fast5 "
-                             "files(default: %(default)s)")
-    parser.add_argument("--include_path", action='store_true', default=False,
-                        help="If given, the absolute path to the corresponding file is added in an extra "
-                             "column(default: %(default)s)")
-    parser.add_argument("--verbose_level", type=int, default=0,
-                        help="Level of verbosity, from 2(Chatty) to 0(Nothing)(default: %(default)s)")
-
-    # Try to parse arguments
-    args = parser.parse_args(args)
-
-    # Run main function
-    Fast5_to_seq_summary(
-        fast5_dir=args.fast5_dir,
-        seq_summary_fn=args.seq_summary_fn,
-        max_fast5=args.max_fast5,
-        threads=args.threads,
-        basecall_id=args.basecall_id,
-        fields=args.fields,
-        include_path=args.include_path,
-        verbose_level=args.verbose_level)
+    _run_converter(args, Fast5_to_seq_summary, "fast5", fields_help=(
+        "List of field names corresponding to attributes to try to fetch from the fast5 files"))
 
 
-#~~~~~~~~~~~~~~Fastq_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
 @_report_errors
 def main_Fastq_to_seq_summary(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
-    # Define parser object
-    parser = argparse.ArgumentParser(
-        description="Fastq_to_seq_summary generate a sequencing summary like file from a directory containing "
-                    "fastq files")
-    parser.add_argument('--version', '-v', action='version', version="{} v{}".format(
-        package_name, package_version))
-    # Define arguments
-    parser.add_argument("--fastq_dir", "-f", required=True, type=str,
-                        help="Directory containing fastq files. Can contain multiple subdirectories")
-    parser.add_argument("--seq_summary_fn", "-s", required=True, type=str,
-                        help="path of the summary sequencing file where to write the data extracted from the "
-                             "fastq files")
-    parser.add_argument("--max_fastq", type=int, default=0,
-                        help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
-    parser.add_argument("--threads", "-t", type=int, default=4,
-                        help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
-                             "Minimum 3(default: %(default)s)")
-    parser.add_argument("--basecall_id", type=int, default=0,
-                        help=textwrap.dedent("Selects one of several basecalling groups inside a FAST5. It has "
-                                             "no meaning for fastq input and is ignored. Kept so existing command "
-                                             "lines keep working(default: %(default)s)"))
-    parser.add_argument("--fields", type=str, nargs="+",
-                        default=["read_id", "run_id", "channel", "start_time", "gc_percent", "sequence_length_template",
-                                 "mean_qscore_template", "calibration_strand_genome_template", "barcode_arrangement",
-                                 "passes_filtering", "duration", "template_duration", "end_reason", "mux"],
-                        help="List of field names corresponding to attributes to try to fetch from the "
-                             "fastq headers(default: %(default)s)")
-    parser.add_argument("--include_path", action='store_true', default=False,
-                        help="If given, the absolute path to the corresponding file is added in an extra "
-                             "column(default: %(default)s)")
-    parser.add_argument("--verbose_level", type=int, default=0,
-                        help="Level of verbosity, from 2(Chatty) to 0(Nothing)(default: %(default)s)")
-
-    # Try to parse arguments
-    args = parser.parse_args(args)
-
-    # Run main function
-    Fastq_to_seq_summary(
-        fastq_dir=args.fastq_dir,
-        seq_summary_fn=args.seq_summary_fn,
-        max_fastq=args.max_fastq,
-        threads=args.threads,
-        basecall_id=args.basecall_id,
-        fields=args.fields,
-        include_path=args.include_path,
-        verbose_level=args.verbose_level)
+    _run_converter(args, Fastq_to_seq_summary, "fastq", fields_help=(
+        "List of field names corresponding to attributes to try to fetch from the fastq headers"))
 
 
 @_report_errors
 def main_Pod5_to_seq_summary(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
-    # Define parser object
-    parser = argparse.ArgumentParser(
-        description="Pod5_to_seq_summary generate a sequencing summary like file from a directory containing "
-                    "pod5 files")
-    parser.add_argument('--version', '-v', action='version', version="{} v{}".format(
-        package_name, package_version))
-
-    # Define arguments
-    parser.add_argument("--pod5_dir", "-f", required=True, type=str,
-                        help="Directory containing pod5 files. Can contain multiple subdirectories")
-    parser.add_argument("--seq_summary_fn", "-s", required=True, type=str,
-                        help="Path of the summary sequencing file where to write the data extracted from the pod5 "
-                             "files")
-    parser.add_argument("--max_pod5", type=int, default=0,
-                        help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
-    parser.add_argument("--threads", "-t", type=int, default=4,
-                        help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
-                             "Minimum 3(default: %(default)s)")
-    parser.add_argument("--basecall_id", type=int, default=0,
-                        help=textwrap.dedent("Selects one of several basecalling groups inside a FAST5. It has no "
-                                             "meaning for pod5 input and is ignored. Kept so existing "
-                                             "command lines keep working(default: %(default)s)"))
-    parser.add_argument("--include_path", action='store_true', default=False,
-                        help="If given, the absolute path to the corresponding file is added in an extra "
-                             "column(default: %(default)s)")
-    parser.add_argument("--verbose_level", type=int, default=0,
-                        help="Level of verbosity, from 2(Chatty) to 0(Nothing)(default: %(default)s)")
-
-    # Try to parse arguments
-    args = parser.parse_args(args)
-
-    # Run main function
-    Pod5_to_seq_summary(
-        pod5_dir=args.pod5_dir,
-        seq_summary_fn=args.seq_summary_fn,
-        max_pod5=args.max_pod5,
-        threads=args.threads,
-        basecall_id=args.basecall_id,
-        include_path=args.include_path,
-        verbose_level=args.verbose_level)
+    _run_converter(args, Pod5_to_seq_summary, "pod5")
 
 
-#~~~~~~~~~~~~~~Bam_to_seq_summary CLI ENTRY POINT~~~~~~~~~~~~~~#
 @_report_errors
 def main_Bam_to_seq_summary(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
-    # Define parser object
-    parser = argparse.ArgumentParser(
-        description="Bam_to_seq_summary generate a sequencing summary like file from a directory containing Bam files")
-    parser.add_argument('--version', '-v', action='version', version="{} v{}".format(
-        package_name, package_version))
-    # Define arguments
-    parser.add_argument("--bam_dir", "-f", required=True, type=str,
-                        help="Directory containing bam files. Can contain multiple subdirectories")
-    parser.add_argument("--seq_summary_fn", "-s", required=True, type=str,
-                        help="Path of the summary sequencing file where to write the data extracted from the bam files")
-    parser.add_argument("--max_bam", type=int, default=0,
-                        help="Maximum number of file to try to parse. 0 to deactivate(default: %(default)s)")
-    parser.add_argument("--threads", "-t", type=int, default=4,
-                        help="Total number of threads to use. 1 thread is used for the reader and 1 for the writer. "
-                             "Minimum 3(default: %(default)s)")
-    parser.add_argument("--basecall_id", type=int, default=0,
-                        help=textwrap.dedent("ID of the basecalling group. By default leave to 0, but if you perform "
-                                             "multiple basecalling on the same bam files, this can be used to indicate "
-                                             "the corresponding group(1, 2 ...)(default: %(default)s)"))
-    parser.add_argument("--fields", type=str, nargs="+", default=None,
-                        help="Columns to keep in the summary. By default every field the bam files "
-                             "carry is written")
-    parser.add_argument("--include_path", action='store_true', default=False,
-                        help="If given, the absolute path to the corresponding file is added in an extra "
-                             "column(default: %(default)s)")
-    parser.add_argument("--verbose_level", type=int, default=0,
-                        help="Level of verbosity, from 2(Chatty) to 0(Nothing)(default: %(default)s)")
-
-    # Try to parse arguments
-    args = parser.parse_args(args)
-
-    # Run main function
-    Bam_to_seq_summary(
-        bam_dir=args.bam_dir,
-        seq_summary_fn=args.seq_summary_fn,
-        max_bam=args.max_bam,
-        threads=args.threads,
-        basecall_id=args.basecall_id,
-        fields=args.fields,
-        include_path=args.include_path,
-        verbose_level=args.verbose_level)
+    _run_converter(args, Bam_to_seq_summary, "bam", fields_help=(
+        "Columns to keep in the summary. By default every field the bam files carry is written"))
 
 
 #~~~~~~~~~~~~~~Barcode_split CLI ENTRY POINT~~~~~~~~~~~~~~#

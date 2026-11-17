@@ -124,6 +124,11 @@ fixes fell out of.
   The per barcode table groups the reads once rather than scanning the
   whole run for each barcode, twice: half the time with 3 barcodes, and
   the saving grows with the barcode count.
+* The four converter commands are built by one function, which reads each
+  `--fields` default from the converter class rather than keeping a second
+  copy of the list. The copies had drifted apart once already. The BAM
+  command's `--basecall_id` help described an option BAM ignores; it now
+  says so.
 * `--basecall_id` warns that it is ignored by the FASTQ converter too, as
   it already did for BAM and POD5; only a FAST5 has basecall groups.
 * `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One
