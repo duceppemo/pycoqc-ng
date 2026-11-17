@@ -124,6 +124,12 @@ fixes fell out of.
   The per barcode table groups the reads once rather than scanning the
   whole run for each barcode, twice: half the time with 3 barcodes, and
   the saving grows with the barcode count.
+* `pycoQC_plot.py`, 3,200 lines holding every plot, is split by plot family
+  into `pycoQC/plots/`: summary tables, distributions, over time, run
+  health, barcodes and alignment, each a mixin, with the read sets and
+  shared helpers in `base.py`. `pycoQC_plot` is composed from them and
+  keeps every method, so nothing that uses it changes, and the reports are
+  identical. An unused method, `_barcodes_count`, was dropped.
 * The four converter commands are built by one function, which reads each
   `--fields` default from the converter class rather than keeping a second
   copy of the list. The copies had drifted apart once already. The BAM
