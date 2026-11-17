@@ -215,7 +215,9 @@ def wait_for_workers(workers, grace=0.5):
 
 
 def _send_error(status, stage, error):
-    """Report a worker's failure, then let anything but an Exception go on.
+    """Report a worker's failure. An Exception reported is done with;
+    anything else, or an Exception that could not be reported, is raised
+    again, so the worker exits non-zero.
 
     Only an Exception was caught. A lister stopped by SystemExit or
     KeyboardInterrupt still sent the parsers their stop signals on its way
@@ -228,12 +230,13 @@ def _send_error(status, stage, error):
         sent = True
     except OSError:
         sent = False
-    # Unsent, as when the parent has stopped listening on Ctrl-C, the error
-    # itself is raised: not the pipe's, which would hide it, and not
-    # nothing, since a lister that returned would exit cleanly having sent
-    # the parsers their stop signals, and a short summary would pass for a
-    # complete one. Raised here rather than in the except clause, so that it
-    # does not carry the pipe's error, and the pickled message, along.
+    # A send fails only once the parent has stopped listening: on Ctrl-C, or
+    # when it is already raising another worker's error. The parent is past
+    # waiting by then and will not keep a summary, so this is about what the
+    # worker leaves behind: its own error, not the pipe's, which would hide
+    # it, and a non-zero exit, not a clean one. Raised here rather than in
+    # the except clause, so that it does not carry the pipe's error, and the
+    # pickled message, along.
     if not sent or not isinstance(error, Exception):
         raise error
 
@@ -410,8 +413,11 @@ class ConverterPipeline:
         empty list and failed on finding no reads, and with FAST5 failed on
         None. Asking for path alone, without --include_path, leaves the read
         ids, not every field and not none.
+
+        Any sequence of names will do, a numpy array or a DataFrame's columns
+        included, whose truth value is ambiguous: hence len, not `not`.
         """
-        if not fields:
+        if fields is None or len(fields) == 0:
             fields = self.DEFAULT_FIELDS
         if fields is None:
             return None

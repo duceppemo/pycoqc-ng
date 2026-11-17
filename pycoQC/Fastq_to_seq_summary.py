@@ -226,9 +226,11 @@ class Fastq_to_seq_summary(ConverterPipeline):
     # strings compress poorly.
     GZIP_RATIO = 2.5
 
-    # Matches the --fields default of the command line, which reads it from
-    # here. The two disagreed, so calling this class directly silently
-    # dropped the pass or fail column that the command produced.
+    # The fields written when none are named, here and on the command line,
+    # which reads its --fields default from this. A subclass changes its
+    # default here. The command line once kept a list of its own, and calling
+    # this class directly silently dropped the pass or fail column that the
+    # command produced.
     DEFAULT_FIELDS = ("read_id", "run_id", "channel", "start_time", "gc_percent",
                       "sequence_length_template", "mean_qscore_template",
                       "calibration_strand_genome_template", "barcode_arrangement",
@@ -243,7 +245,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
                  basecall_id: int = 0,
                  verbose_level: int = 0,
                  include_path: bool = False,
-                 fields: list = DEFAULT_FIELDS):
+                 fields: list = None):
         """
         * fastq_dir
             Directory containing fastqfiles. Can contain multiple subdirectories
@@ -255,7 +257,8 @@ class Fastq_to_seq_summary(ConverterPipeline):
             Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3, and at most 31 on Windows before
             Python 3.13 (default = 4)
         * fields
-            list of field names corresponding to attributes to try to fetch from the fastq files. List a valid field names:
+            Fields to fetch from the fastq files. None or an empty list, the
+            default, is DEFAULT_FIELDS. Valid field names:
             mean_qscore_template, sequence_length_template, called_events, skip_prob, stay_prob, step_prob, strand_score, read_id, start_time,
             duration, start_mux, read_number, channel, channel_digitisation, channel_offset, channel_range, channel_sampling,
             run_id, sample_id, device_id, protocol_run, flow_cell, calibration_strand, calibration_strand, calibration_strand,
