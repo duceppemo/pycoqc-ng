@@ -6,7 +6,8 @@ item into one record per read, and a writer process collects the records
 into the summary file:
 
     lister --in_q--> parser x N --out_q--> writer
-                \\________ error_q ________/  -> parent
+      |                  |                     |
+      '----- a status pipe each, to the parent ------'
 
 Each converter supplies only what differs: the work items, how an item
 becomes records, and any last change to the table before it is written.
@@ -24,13 +25,13 @@ than only a worker's stderr.
 import logging
 import multiprocessing as mp
 import os
-import queue
 import shutil
 import sys
 import tempfile
 import threading
 from collections import Counter
 from contextlib import contextmanager
+from multiprocessing.connection import wait as wait_ready
 from time import time
 
 # Third party imports
@@ -80,31 +81,45 @@ def worker_context():
 LISTER, PARSER, WRITER, SILENT = 0, 1, 2, 3
 
 
-def wait_for_workers(ps_list, error_q, poll=0.5, grace=0.5):
-    """Wait for every worker to exit, then return the writer's report or
+_SILENT_EXIT = (
+    "A worker process stopped without reporting why (exit code {}). If the "
+    "converter is called from a script, the call must sit under "
+    "`if __name__ == \"__main__\":`, since each worker imports the script again "
+    "as it starts. Otherwise the system may have run out of memory: try fewer "
+    "threads.")
+
+
+def wait_for_workers(workers, grace=0.5):
+    """Wait for every worker to finish, then return the writer's report or
     raise the error that explains the failure.
 
-    Workers send ("error", stage, message) when they fail and the writer
-    sends ("done", report) when it has finished. The queue is read until
-    every worker has exited, for two reasons. A process cannot exit until
-    what it put on a queue has been read off, so joining workers before
-    reading could wait for ever once their messages filled the pipe. And
-    messages from different processes arrive in no fixed order, so the
-    writer's report could arrive before an error another worker sent
-    first.
+    * workers
+        (process, connection) pairs. Each worker reports on a pipe of its
+        own: ("error", stage, message) when it fails, and the writer
+        ("done", report) when it has finished.
+    * grace
+        Seconds the others are given, once an error has arrived, before
+        the error is raised: a worker downstream of a failure may never
+        exit on its own.
 
-    Once an error has arrived, the others have `grace` seconds to arrive,
-    since a worker downstream of a failure may never exit on its own, and
-    then the earliest stage's error is raised. Only messages already on
-    their way need the time, which is milliseconds, so the grace is short:
-    a failed conversion is reported that much later. A worker that dies without
-    sending anything, killed for memory or failing as it starts, is noticed
-    from its exit code.
+    The parent sleeps until a worker sends something or exits, and reads
+    each pipe to its end, so a worker is never left unable to exit with a
+    message unread. When a worker has exited, everything it sent is read
+    before its exit code is looked at.
+
+    Of several errors, the earliest stage's is raised (lister, then
+    parsers, then writer), since the later ones are usually its
+    consequences: a lister that finds no files leaves the writer with no
+    reads. A worker that dies without reporting, killed for memory or
+    failing as it starts, is noticed from its exit code. Once the writer
+    has reported, though, every file has been read and the summary
+    written, so a worker crashing on its way out does not fail the run.
     """
     report = None
     errors = []
     deadline = None
-    reported_silent = set()
+    pipes = {conn: proc for proc, conn in workers}
+    sentinels = {proc.sentinel: (proc, conn) for proc, conn in workers}
 
     def take(message):
         nonlocal report, deadline
@@ -115,43 +130,42 @@ def wait_for_workers(ps_list, error_q, poll=0.5, grace=0.5):
         if deadline is None:
             deadline = time() + grace
 
-    while True:
-        # Once the outcome is known the workers are only finishing, so they
-        # are checked on far more often than while the work is running.
-        settled = report is not None or bool(errors)
-        try:
-            take(error_q.get(timeout=0.02 if settled else poll))
-            continue
-        except queue.Empty:
-            pass
+    def read_to_end(conn):
+        # Only called on a worker that has exited: its end is closed, so
+        # this returns at the end of what it sent rather than waiting.
+        while conn in pipes:
+            try:
+                take(conn.recv())
+            except EOFError:
+                del pipes[conn]
 
-        alive = [p for p in ps_list if p.is_alive()]
-        if not alive:
-            # Whatever an exited worker sent is in the pipe by now.
-            while True:
+    while pipes or sentinels:
+        timeout = None
+        if errors:
+            timeout = deadline - time()
+            if timeout <= 0:
+                break
+        ready = wait_ready(list(pipes) + list(sentinels), timeout)
+        # Messages first, so a report is in hand before an exit is judged.
+        for obj in sorted(ready, key=lambda o: o in sentinels):
+            if obj in pipes:
                 try:
-                    take(error_q.get(timeout=0.05))
-                except queue.Empty:
-                    break
+                    take(obj.recv())
+                except EOFError:
+                    del pipes[obj]
+            elif obj in sentinels:
+                proc, conn = sentinels.pop(obj)
+                proc.join()
+                read_to_end(conn)
+                if proc.exitcode != 0 and report is None:
+                    take(("error", SILENT, _SILENT_EXIT.format(proc.exitcode)))
 
-        for proc in ps_list:
-            if proc.exitcode not in (None, 0) and proc.pid not in reported_silent:
-                reported_silent.add(proc.pid)
-                take(("error", SILENT,
-                      "A worker process stopped without reporting why (exit "
-                      "code {}). If the converter is called from a script, the "
-                      "call must sit under `if __name__ == \"__main__\":`, since "
-                      "each worker imports the script again as it starts. "
-                      "Otherwise the system may have run out of memory: try "
-                      "fewer threads.".format(proc.exitcode)))
-
-        if errors and (not alive or time() >= deadline):
-            # min keeps the first to arrive among errors of the same stage.
-            raise pycoQCError(min(errors, key=lambda e: e[0])[1])
-        if not alive:
-            if report is None:
-                raise pycoQCError("The workers finished without writing a summary")
-            return report
+    if errors:
+        # min keeps the first to arrive among errors of the same stage.
+        raise pycoQCError(min(errors, key=lambda e: e[0])[1])
+    if report is None:
+        raise pycoQCError("The workers finished without writing a summary")
+    return report
 
 
 def stop_processes(ps_list, timeout=5):
@@ -297,6 +311,25 @@ class ConverterPipeline:
                 "ignored; it selects one of several basecall groups inside a "
                 "FAST5.".format(self.kind.upper()))
 
+    def _requested_fields(self, fields):
+        """--fields without path, which no input file carries.
+
+        The path column is the file a read came from, written with
+        --include_path. Asked for without it, each converter blamed the input:
+        the BAM one said a BAM carries no such field, the FASTQ one counted it
+        missing from every read, and the FAST5 one rejected it as invalid.
+        """
+        if fields is None:
+            return None
+        fields = list(fields)
+        if "path" in fields:
+            fields = [f for f in fields if f != "path"]
+            if not self.include_path:
+                self._log.warning(
+                    "WARNING: the path column is only written with "
+                    "--include_path, so path is left out of the summary")
+        return fields
+
     def _input_files(self):
         """Every input file under in_dir, in order, up to max_files."""
         # Counted apart from the loop: enumerate is zero based, so testing it
@@ -338,15 +371,24 @@ class ConverterPipeline:
         ctx = worker_context()
         in_q = ctx.Queue(maxsize=self.in_queue_size)
         out_q = ctx.Queue(maxsize=max(8, 4 * self.threads))
-        error_q = ctx.Queue()
         counter_q = ctx.Queue()
 
-        ps_list = [ctx.Process(target=self._lister, args=(in_q, error_q))]
+        # Each worker reports on a pipe of its own, which the parent can
+        # sleep on together with the workers' exits.
+        pipes = []
+
+        def status_pipe():
+            reader, writer = ctx.Pipe(duplex=False)
+            pipes.append((reader, writer))
+            return writer
+
+        ps_list = [ctx.Process(target=self._lister, args=(in_q, status_pipe()))]
         for i in range(self.threads):
             ps_list.append(ctx.Process(
-                target=self._parser, args=(in_q, out_q, error_q, counter_q, i)))
+                target=self._parser,
+                args=(in_q, out_q, status_pipe(), counter_q, i)))
         ps_list.append(ctx.Process(
-            target=self._writer, args=(out_q, error_q, counter_q)))
+            target=self._writer, args=(out_q, status_pipe(), counter_q)))
 
         self._log.info("Start processing {} files".format(self.kind))
         staging = None
@@ -360,13 +402,21 @@ class ConverterPipeline:
             # hidden, so that one left by a killed run is easy to find. Set
             # before the workers start, which receive a copy of the path.
             directory, name = os.path.split(os.path.abspath(self.seq_summary_fn))
-            staging = tempfile.mkdtemp(prefix=name + ".pycoqc-tmp-", dir=directory)
+            # Only the start of a long name, which with the suffix and the
+            # random part must still fit a file system's 255 byte limit.
+            staging = tempfile.mkdtemp(prefix=name[:150] + ".pycoqc-tmp-", dir=directory)
             self._partial_fn = os.path.join(staging, name)
 
             with _worker_environment():
                 for proc in ps_list:
                     proc.start()
-            report = wait_for_workers(ps_list, error_q)
+            # The workers hold their own ends now. Closing the parent's
+            # copies is what lets a pipe report its end once its worker has
+            # exited.
+            for _, writer in pipes:
+                writer.close()
+            report = wait_for_workers(
+                [(proc, reader) for proc, (reader, _) in zip(ps_list, pipes)])
             for proc in ps_list:
                 proc.join()
             # Only a run every worker finished becomes the summary. The writer
@@ -375,7 +425,10 @@ class ConverterPipeline:
             os.replace(self._partial_fn, self.seq_summary_fn)
 
         except BaseException:
-            self._log.info("\nAn error occurred. All processes were killed\n")
+            # Only when there were any: creating the temporary directory
+            # fails before a single worker has started.
+            if any(proc.pid is not None for proc in ps_list):
+                self._log.info("\nAn error occurred. All processes were killed\n")
             raise
 
         finally:
@@ -383,6 +436,9 @@ class ConverterPipeline:
             # running. Listing the exceptions to clean up after meant any
             # other kind left the whole pool alive.
             stop_processes(ps_list)
+            for reader, writer in pipes:
+                reader.close()
+                writer.close()
             if staging is not None:
                 shutil.rmtree(staging, ignore_errors=True)
                 if os.path.exists(staging):
@@ -419,7 +475,7 @@ class ConverterPipeline:
         # A worker starts with fresh loggers rather than the parent's.
         return get_logger(type(self).__module__, level=self.log_level)
 
-    def _lister(self, in_q, error_q):
+    def _lister(self, in_q, status):
         """Queue the numbered work items, then one stop signal per parser."""
         log = self._start_worker()
         try:
@@ -428,12 +484,12 @@ class ConverterPipeline:
                 in_q.put((n, item))
             log.debug("[LISTER] Queued {} work items".format(n))
         except Exception as E:
-            error_q.put(("error", LISTER, format_worker_error(E)))
+            status.send(("error", LISTER, format_worker_error(E)))
         finally:
             for _ in range(self.threads):
                 in_q.put(None)
 
-    def _parser(self, in_q, out_q, error_q, counter_q, worker_id):
+    def _parser(self, in_q, out_q, status, counter_q, worker_id):
         """Turn work items into batches of records for the writer.
 
         Each batch carries its item's number and its own place within the
@@ -463,11 +519,11 @@ class ConverterPipeline:
                     out_q.put((n, part, source, batch))
             counter_q.put(counts)
         except Exception as E:
-            error_q.put(("error", PARSER, format_worker_error(E)))
+            status.send(("error", PARSER, format_worker_error(E)))
         finally:
             out_q.put(None)
 
-    def _writer(self, out_q, error_q, counter_q):
+    def _writer(self, out_q, status, counter_q):
         """Collect every record, write the summary and send back a report."""
         log = self._start_worker()
         t = time()
@@ -519,10 +575,10 @@ class ConverterPipeline:
                 for key, counter in counter_q.get().items():
                     counts[key].update(counter)
 
-            error_q.put(("done", {
+            status.send(("done", {
                 "reads": len(df), "seconds": time() - t, "counts": counts,
                 "duplicates_across_files": across,
                 "duplicates_within_files": within, "notes": notes}))
 
         except Exception as E:
-            error_q.put(("error", WRITER, format_worker_error(E)))
+            status.send(("error", WRITER, format_worker_error(E)))

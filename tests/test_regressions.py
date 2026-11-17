@@ -563,64 +563,84 @@ class TestWorkersAreNotForked:
         assert len(pd.read_csv(out, sep="\t")) > 0
 
 
-def _exits_silently(code):
+def _scripted_worker(conn, steps):
+    """A stand-in worker: ("sleep", s), ("send", message) or ("exit", code)."""
     import os
-    os._exit(code)
+    import time
+    for action, value in steps:
+        if action == "sleep":
+            time.sleep(value)
+        elif action == "send":
+            conn.send(value)
+        else:
+            conn.close()
+            os._exit(value)
+
+
+def _run_scripted(*scripts, grace=60):
+    """Run stand-in workers, each reporting on a pipe of its own, as the
+    pipeline does; returns wait_for_workers' result, or raises its error.
+    The processes are left in started for the caller to check."""
+    from pycoQC._pipeline import wait_for_workers, worker_context
+    ctx = worker_context()
+    workers = []
+    for steps in scripts:
+        reader, writer = ctx.Pipe(duplex=False)
+        proc = ctx.Process(target=_scripted_worker, args=(writer, steps))
+        proc.start()
+        writer.close()
+        workers.append((proc, reader))
+    _run_scripted.started = [proc for proc, _ in workers]
+    try:
+        return wait_for_workers(workers, grace=grace)
+    finally:
+        for proc in _run_scripted.started:
+            proc.join(10)
 
 
 class TestWhichErrorIsReported:
     """The first message to arrive decided the outcome, and messages from
     different processes arrive in no fixed order."""
 
-    @staticmethod
-    def run(*messages):
-        from pycoQC._pipeline import wait_for_workers, worker_context
-        ctx = worker_context()
-        q = ctx.Queue()
-        ps = [ctx.Process(target=_put_after, args=(q, delay, message))
-              for delay, message in messages]
-        for p in ps:
-            p.start()
-        try:
-            return wait_for_workers(ps, q, poll=0.1), ps
-        finally:
-            for p in ps:
-                p.join(10)
-
     def test_the_cause_wins_over_its_consequence(self):
         """A lister finding no files leaves the writer with no reads, and
-        whichever said so first was the error the user saw."""
+        whichever said so first was the error the user saw. The grace is
+        long so that the order the two arrive in cannot matter."""
         from pycoQC._pipeline import LISTER, WRITER
         with pytest.raises(pycoQCError, match="no files found"):
-            self.run((0, ("error", WRITER, "no reads to write")),
-                     (0.3, ("error", LISTER, "no files found")))
+            _run_scripted([("send", ("error", WRITER, "no reads to write"))],
+                          [("sleep", 0.3), ("send", ("error", LISTER, "no files found"))])
 
     def test_an_error_after_the_report_still_fails_and_is_read(self):
         """The parent returned on the writer's report and then joined the
         workers, and one with a large message still unread could not exit."""
-        from pycoQC._pipeline import PARSER, wait_for_workers, worker_context
-        ctx = worker_context()
-        q = ctx.Queue()
-        ps = [ctx.Process(target=_put_after, args=(q, 0, ("done", {}))),
-              ctx.Process(target=_put_after,
-                          args=(q, 0.3, ("error", PARSER, "x" * 300000)))]
-        for p in ps:
-            p.start()
+        from pycoQC._pipeline import PARSER
         with pytest.raises(pycoQCError):
-            wait_for_workers(ps, q, poll=0.1)
-        for p in ps:
-            p.join(10)
-            assert p.exitcode == 0
+            _run_scripted([("send", ("done", {}))],
+                          [("sleep", 0.3), ("send", ("error", PARSER, "x" * 300000))])
+        assert [p.exitcode for p in _run_scripted.started] == [0, 0]
 
     def test_a_clean_run_returns_the_report(self):
-        report, _ = self.run((0, ("done", {"reads": 3})))
+        assert _run_scripted([("send", ("done", {"reads": 3}))]) == {"reads": 3}
+
+    def test_a_crash_after_the_report_does_not_fail_the_run(self):
+        """Every file had been read and the summary written, but a worker
+        crashing on its way out failed the run and lost the summary."""
+        report = _run_scripted([("send", ("done", {"reads": 3})), ("exit", 0)],
+                               [("sleep", 0.3), ("exit", 3)])
+        assert report == {"reads": 3}
+
+    def test_a_report_sent_just_before_a_crash_is_read(self):
+        """An exit was judged before the pipe of the worker that made it had
+        been read to its end."""
+        report = _run_scripted([("send", ("done", {"reads": 3})), ("exit", 3)])
         assert report == {"reads": 3}
 
     def test_processes_never_started_can_be_stopped(self):
         """stop_processes joined every process in the list, and joining one
         that never started raises."""
         from pycoQC._pipeline import stop_processes, worker_context
-        stop_processes([worker_context().Process(target=_put_after, args=(None, 0, None))])
+        stop_processes([worker_context().Process(target=_scripted_worker, args=(None, []))])
 
 
 class TestWorkersThatDieSilently:
@@ -628,16 +648,8 @@ class TestWorkersThatDieSilently:
     killed for memory, left the parent waiting on the error queue for ever."""
 
     def test_the_parent_raises_instead_of_waiting(self):
-        from pycoQC._pipeline import wait_for_workers, worker_context
-        ctx = worker_context()
-        error_q = ctx.Queue()
-        ps = ctx.Process(target=_exits_silently, args=(3,))
-        ps.start()
-        try:
-            with pytest.raises(pycoQCError, match="exit code 3"):
-                wait_for_workers([ps], error_q, poll=0.1)
-        finally:
-            ps.join(10)
+        with pytest.raises(pycoQCError, match="exit code 3"):
+            _run_scripted([("exit", 3)], grace=0.5)
 
     def test_a_script_without_a_main_guard_is_told_so(self, fastq_dir, tmp_path):
         script = tmp_path / "unguarded.py"
@@ -684,12 +696,6 @@ class _UniqueFastq(Fastq_to_seq_summary):
     """The FASTQ converter dropping repeated read ids, in blocks of 3."""
     unique_read_ids = True
     READS_PER_CHUNK = 3
-
-
-def _put_after(q, delay, message):
-    import time
-    time.sleep(delay)
-    q.put(message)
 
 
 def _report_env(q):
@@ -771,6 +777,13 @@ class TestFailedConversionsWriteNothing:
         if suffix == ".gz":
             assert out.read_bytes()[:2] == b"\x1f\x8b"
         assert len(pd.read_csv(out, sep="\t")) == 200
+        assert sorted(p.name for p in tmp_path.iterdir()) == [out.name]
+
+    def test_a_long_summary_name_still_fits(self, fastq_dir, tmp_path):
+        """The temporary directory was named after the whole summary name,
+        and with its suffix passed the 255 byte limit of a file name."""
+        out = tmp_path / ("s" * 240 + ".txt")
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3)
         assert sorted(p.name for p in tmp_path.iterdir()) == [out.name]
 
     def test_a_clean_run_leaves_only_the_summary(self, bam_dir, tmp_path):
@@ -866,14 +879,39 @@ class TestMetricsFollowTheReadSets:
 
 class TestRecordsCarryOnlyWhatIsAsked:
 
+    @pytest.mark.parametrize("converter", ["fastq", "fast5"])
+    def test_path_in_fields_is_taken_as_include_path(self, converter, fastq_dir,
+                                                     basecalled_fast5_dir, tmp_path, caplog):
+        """Only the BAM converter knew that path is not an input field: the
+        FASTQ one counted it missing from every read and the FAST5 one
+        rejected it as invalid."""
+        out = tmp_path / "s.txt"
+        with caplog.at_level(logging.WARNING):
+            if converter == "fastq":
+                Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out),
+                                     threads=3, fields=["read_id", "channel", "path"])
+            else:
+                Fast5_to_seq_summary(fast5_dir=str(basecalled_fast5_dir),
+                                     seq_summary_fn=str(out), threads=3,
+                                     fields=["read_id", "channel", "path"])
+        assert "only written with --include_path" in caplog.text
+        assert "path" not in pd.read_csv(out, sep="\t").columns
+
     def test_asking_for_path_without_include_path_says_so(self, bam_dir, tmp_path, caplog):
         """The path is not in the BAM, so 'a BAM carries no field called path'
         blamed the file for an option that was not given."""
         with caplog.at_level(logging.WARNING):
             Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(tmp_path / "s.txt"),
-                               threads=3, fields=["channel", "path"])
+                               threads=3, fields=["channel", "path", "path"])
         assert "only written with --include_path" in caplog.text
-        assert "carries no field called path" not in caplog.text
+        assert "carries no field" not in caplog.text
+
+    def test_a_field_no_bam_carries_is_named(self, bam_dir, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(tmp_path / "s.txt"),
+                               threads=3, fields=["channel", "nonesuch"])
+        assert ("a BAM carries no field called nonesuch, so it is left out of "
+                "the summary") in caplog.text
 
     def test_a_bam_record_has_no_path_unless_asked(self, bam_dir):
         from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary as Bam

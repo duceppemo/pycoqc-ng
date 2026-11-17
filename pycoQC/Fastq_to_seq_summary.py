@@ -12,6 +12,7 @@ import pandas as pd
 # Local imports
 from pycoQC._pipeline import ConverterPipeline
 from pycoQC.common import (
+    is_gzip_name,
     path_below,
     path_has_token,
     mean_qscore,
@@ -42,7 +43,7 @@ class FastqParser(object):
     @staticmethod
     def is_gzipped(fastq_fn):
         """Whether a fastq file is read as gzip, by its name."""
-        return fastq_fn.endswith('.gz')
+        return is_gzip_name(fastq_fn)
 
     @staticmethod
     def open_fastq(fastq_fn):
@@ -266,7 +267,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
         """
         self._configure(fastq_dir, seq_summary_fn, max_fastq, threads,
                         basecall_id, include_path, verbose_level)
-        self.fields = fields
+        self.fields = self._requested_fields(fields)
 
         # Blocks of lines are large, so few are kept waiting for a parser.
         self.in_queue_size = max(4, self.threads * 2)
