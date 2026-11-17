@@ -20,7 +20,7 @@ from plotly.subplots import make_subplots
 
 # Local lib import
 from pycoQC.common import pycoQCError
-from pycoQC.plots.base import COVERAGE_MAX_LABELLED_REFS
+from pycoQC.plots.base import COVERAGE_MAX_LABELLED_REFS, MENU_ROW
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class Alignment:
@@ -77,7 +77,7 @@ class Alignment:
         fig.update_layout(
             width=width,
             height=height,
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+            title=self._title(plot_title))
 
         return fig
 
@@ -160,7 +160,7 @@ class Alignment:
         fig.update_layout(
             width=width,
             height=height,
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+            title=self._title(plot_title))
 
         return fig
 
@@ -234,7 +234,7 @@ class Alignment:
             line={'color': 'gray', 'width': 2, 'dash': 'dot'})
 
         updatemenus = [
-            dict(type="buttons", x=-0.2, y=0, xanchor='left', yanchor='bottom',  buttons=[
+            dict(MENU_ROW, buttons=[
                 dict(label="log", method='relayout', args=[{"yaxis": {"title": "Mean Coverage", "type": "log",
                                                                       "zeroline": False, "fixedrange": True}}]),
                 dict(label="linear", method='relayout', args=[{"yaxis": {"title": "Mean Coverage", "type": "linear",
@@ -276,7 +276,7 @@ class Alignment:
             xaxis={"zeroline": False, "showline": True, "ticktext": x_lab, "tickvals": x_lab_coord,
                    "tickangle": -45, "showgrid": False, "title": x_title},
             yaxis={"title": "Mean Coverage", "type": "log", "zeroline": False, "fixedrange": True},
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+            title=self._title(plot_title))
 
         return go.Figure(data=[data1, data2], layout=layout)
 

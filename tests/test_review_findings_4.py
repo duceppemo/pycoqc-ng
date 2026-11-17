@@ -414,11 +414,12 @@ class TestBarcodeFigureControls:
         assert totals == [len(plotter.all_df), len(plotter.pass_df),
                           len(plotter.fail_df)]
 
-    def test_the_buttons_sit_below_the_pie(self, plotter):
-        menu = plotter.barcode_counts()["layout"]["updatemenus"][0]
+    def test_the_buttons_sit_in_a_row_above_the_legend(self, plotter):
+        layout = plotter.barcode_counts()["layout"]
+        menu = layout["updatemenus"][0]
         assert menu["direction"] == "right"
-        assert menu["y"] <= 0          # under the plotting area
-        assert 0 <= menu["x"] <= 0.4   # across the pie, not over the legend
+        assert menu["y"] >= 1 and menu["yanchor"] == "bottom"
+        assert layout["legend"]["y"] <= 1   # under the row, not beside it
 
     def test_the_figure_grows_with_the_number_of_barcodes(self, tmp_path):
         """At a fixed height a 96 barcode run had its legend and its table

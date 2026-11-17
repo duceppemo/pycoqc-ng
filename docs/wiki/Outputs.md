@@ -45,6 +45,16 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 
 ![Read quality distribution](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-quality.png)
 
+![Translocation speed](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-speed.png)
+
+*Translocation speed on the lambda run: a median of 351 bases per second, with the
+middle half of reads between 324 and 372.*
+
+![Time spent in the pore](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/read-duration.png)
+
+*Time in pore, from the report on a run whose summary carries no basecalls: the
+plots of read length and quality give way to plots of the signal.*
+
 **Two-dimensional**
 
 | Plot | Shows |
@@ -79,6 +89,12 @@ plots need barcode information, and %GC plots need a summary built from FASTQ or
 away beneath it. The two sharp dips are pauses in this run. A cumulative curve that
 goes flat early means the flow cell stopped producing.*
 
+![Read end reason over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/end-reason-over-time.png)
+
+*About nine strands in ten finish normally and one is ejected by an unblock, steadily
+over a 4.6 hour run. The two dips, an hour and a half apart, are mux scans, which cut
+the reads in progress short (`mux_change`).*
+
 ![Read quality over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/quality-over-time.png)
 
 *Median quality drifting down over 48 hours with the spread widening, the usual
@@ -89,6 +105,11 @@ signature of pores degrading.*
 *Output per channel across 48 hours. Coverage is dense early and thins towards the
 top of the plot as pores die, which is the normal shape; a band going quiet early, or
 a block of channels never firing, is worth looking into.*
+
+![Active channels over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/active-channels.png)
+
+*The same run counted as channels producing reads: from nearly all 512 at the start
+to fewer than 250 by the end, as the pores are used up.*
 
 ![Read length over experiment time](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-over-time.png)
 
@@ -102,6 +123,11 @@ a block of channels never firing, is worth looking into.*
 | `alignment_coverage` | Coverage along the reference |
 
 ![Reads per barcode](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/barcode-counts.png)
+
+![Read length per barcode](https://raw.githubusercontent.com/duceppemo/pycoqc-ng/main/docs/images/examples/length-per-barcode.png)
+
+*Read length per barcode. The box spans the middle half of the reads, the solid line
+is the median and the dashed line the mean.*
 
 A falling `read_qual_over_time`, or `channels_activity` thinning out partway through,
 usually points at pore exhaustion rather than anything wrong with the library.
@@ -133,7 +159,12 @@ These need columns that newer basecallers and the converters write: `end_reason`
   The per-mux lines show whether one of a channel's four pores wore out before the
   others.
 
-All example figures come from a 48 hour lambda phage run on a MinION, 975,715 reads, the [EPI2ME Labs basic QC tutorial dataset](https://epi2me.nanoporetech.com/notebooks/Basic_QC_Tutorial.html).
+Most example figures come from a 48 hour lambda phage run on a MinION, 975,715 reads,
+the [EPI2ME Labs basic QC tutorial dataset](https://epi2me.nanoporetech.com/notebooks/Basic_QC_Tutorial.html).
+That summary has no end reasons, so the end reason figure and the time in pore figure
+come from a 4.6 hour R10.4.1 *D. melanogaster* run on a MinION, flow cell FAV81161,
+from Oxford Nanopore's open data (`contrib/melanogaster_bkim_2023.01`). The barcode
+figures come from the barcoded Guppy summary in `tests/data`.
 
 ## PDF report
 

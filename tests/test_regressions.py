@@ -256,6 +256,54 @@ class TestAlignmentColours:
         assert dict(zip(pie.labels, pie.marker.colors))["Unmapped"] == "u"
 
 
+@pytest.fixture(scope="module")
+def figures(tmp_path_factory, aligned_bam):
+    """Every default plot of a run that has what each of them needs."""
+    n = 600
+    summary = write_summary(
+        tmp_path_factory.mktemp("menus") / "s.txt", n=n,
+        barcode_arrangement=[f"barcode0{i % 3 + 1}" for i in range(n)],
+        duration=[2.0 + i % 7 for i in range(n)],
+        mux=[i % 4 + 1 for i in range(n)],
+        end_reason=["signal_positive", "unblock_mux_change"] * (n // 2))
+    parser = pycoQC_parse(summary_file=str(summary),
+                          bam_file=str(aligned_bam), quiet=True)
+    reporter = pycoQC_report(parser, pycoQC_plot(parser, quiet=True), quiet=True)
+    return {name: fig for name, _, fig
+            in reporter._iter_figures(reporter._get_config())}
+
+
+class TestButtonsKeepClearOfLegendsAndAxes:
+    """The buttons of each plot ran down the left hand side, sharing the
+    margin with the legend and the y axis title, and covered one or the
+    other: six buttons on output_over_time went over both."""
+
+    def test_every_plot_with_buttons_is_drawn(self, figures):
+        with_menus = {name for name, fig in figures.items()
+                      if fig.layout.updatemenus}
+        assert {"output_over_time", "read_len_1D", "read_len_read_qual_2D",
+                "read_len_over_time", "channels_activity", "end_reason_over_time",
+                "active_channels_over_time", "barcode_counts",
+                "basecall_summary_per_barcode", "length_boxplot_per_barcode",
+                "alignment_coverage"} <= with_menus
+
+    def test_buttons_sit_in_a_row_above_the_plot(self, figures):
+        for name, fig in figures.items():
+            for menu in fig.layout.updatemenus:
+                assert (menu.direction, menu.x, menu.xanchor, menu.y, menu.yanchor) \
+                    == ("right", 0, "left", 1, "bottom"), name
+
+    def test_legends_stay_out_of_the_row(self, figures):
+        for name, fig in figures.items():
+            if fig.layout.updatemenus and fig.layout.legend.y is not None:
+                assert fig.layout.legend.y <= 1, name
+
+    def test_the_title_is_above_the_row(self, figures):
+        for name, fig in figures.items():
+            title = fig.layout.title
+            assert (title.yref, title.y, title.yanchor) == ("container", 1, "top"), name
+
+
 class TestCoverageReferences:
 
     @pytest.fixture

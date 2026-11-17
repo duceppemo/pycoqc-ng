@@ -87,15 +87,14 @@ class RunHealth:
             width=width,
             height=height,
             hovermode="x unified",
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.07, y=0,
-                                         xanchor='right', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "restyle"),
             # Under the plot, in a row: the stack fills the whole area, and
             # the reasons' names are long enough to run into the axis title
             # down the side.
             legend={"orientation": "h", "x": 0.5, "y": -0.18, "xanchor": "center",
                     "yanchor": "top", "traceorder": "normal"},
             margin={"b": 110},
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
             yaxis={"title": "Share of reads (%)", "range": [0, 100], "zeroline": False,
                    "showline": True, "fixedrange": True})
@@ -217,14 +216,13 @@ class RunHealth:
             width=width,
             height=height,
             hovermode="x unified",
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.07, y=0,
-                                         xanchor='right', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "restyle"),
             # Inside the plot, top right, where the count has fallen away
             # from the flow cell line by then. To the left of the axis, the
             # longer names ran into its title.
             legend={"x": 0.99, "y": 0.97, "xanchor": 'right', "yanchor": 'top',
                     "bgcolor": "rgba(255,255,255,0.7)"},
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             xaxis={"title": "Experiment time (h)", "zeroline": False, "showline": True},
             yaxis={"title": "Channels producing reads per {:.3g} h".format(intervals[1])
                    if intervals[1] >= 0.1 else "Channels producing reads",
@@ -334,9 +332,8 @@ class RunHealth:
             plot_bgcolor="whitesmoke",
             width=width,
             height=height,
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.06, y=0,
-                                         xanchor='right', yanchor='bottom'),
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            updatemenus=self._level_menu(prepared, "restyle"),
+            title=self._title(plot_title),
             xaxis={"title": "Channel id", "zeroline": False, "showline": False, "nticks": 20, "showgrid": False},
             yaxis={"title": "Experiment time (h)", "zeroline": False, "showline": False,
                    "hoverformat": ".2f", "fixedrange": True})
