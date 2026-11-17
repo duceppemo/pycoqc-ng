@@ -226,11 +226,7 @@ class Fastq_to_seq_summary(ConverterPipeline):
     # strings compress poorly.
     GZIP_RATIO = 2.5
 
-    # The fields written when none are named, here and on the command line,
-    # which reads its --fields default from this. A subclass changes its
-    # default here. The command line once kept a list of its own, and calling
-    # this class directly silently dropped the pass or fail column that the
-    # command produced.
+    # See ConverterPipeline.DEFAULT_FIELDS.
     DEFAULT_FIELDS = ("read_id", "run_id", "channel", "start_time", "gc_percent",
                       "sequence_length_template", "mean_qscore_template",
                       "calibration_strand_genome_template", "barcode_arrangement",

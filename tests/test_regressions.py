@@ -1216,11 +1216,38 @@ class TestRecordsCarryOnlyWhatIsAsked:
                        fields=fields)
         assert list(pd.read_csv(out, sep="\t").columns) == ["read_id", "channel"]
 
-    @pytest.mark.parametrize("converter", [Fastq_to_seq_summary, Fast5_to_seq_summary,
-                                           Bam_to_seq_summary])
-    def test_default_fields_have_one_source(self, converter):
-        import inspect
-        assert inspect.signature(converter).parameters["fields"].default is None
+    @pytest.mark.parametrize("fields, expected", [
+        ((f for f in ["read_id", "channel"]), ["read_id", "channel"]),
+        (map(str.strip, [" read_id", "channel "]), ["read_id", "channel"]),
+        ("channel", ["channel"])])
+    def test_any_iterable_of_names_is_a_field_list(self, fields, expected, fastq_dir,
+                                                   tmp_path):
+        """len() of a generator raised, and a string was taken one letter per
+        field: columns c, h, a, n, e and l, all of them missing."""
+        out = tmp_path / "s.txt"
+        Fastq_to_seq_summary(fastq_dir=str(fastq_dir), seq_summary_fn=str(out), threads=3,
+                             fields=fields)
+        assert list(pd.read_csv(out, sep="\t").columns) == expected
+
+    def test_an_array_of_fields_for_fast5_and_bam(self, basecalled_fast5_dir, bam_dir,
+                                                  tmp_path):
+        fast5_out, bam_out = tmp_path / "fast5.txt", tmp_path / "bam.txt"
+        Fast5_to_seq_summary(fast5_dir=str(basecalled_fast5_dir), seq_summary_fn=str(fast5_out),
+                             threads=3, fields=np.array(["read_id", "channel"]))
+        Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(bam_out), threads=3,
+                           fields=np.array(["channel"]))
+        assert list(pd.read_csv(fast5_out, sep="\t").columns) == ["read_id", "channel"]
+        assert list(pd.read_csv(bam_out, sep="\t").columns) == ["read_id", "channel"]
+
+    @pytest.mark.parametrize("converter", [Fastq_to_seq_summary, Fast5_to_seq_summary])
+    def test_the_notebook_help_shows_the_default_fields(self, converter):
+        """With fields defaulting to None, jhelp showed None as the default."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(converter)["fields"]["default"] == list(converter.DEFAULT_FIELDS)
+
+    def test_the_bam_help_default_stays_every_field(self):
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(Bam_to_seq_summary)["fields"]["default"] is None
 
     @pytest.mark.parametrize("converter", ["fastq", "bam"])
     def test_path_alone_without_include_path_is_the_read_ids(
