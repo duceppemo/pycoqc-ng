@@ -870,6 +870,29 @@ class _UnrelatedWithFields:
         """
 
 
+class _UnrelatedWithHook:
+    """Not a converter, with a help_defaults that cannot be called on the
+    class."""
+    help_defaults = {"fields": ["a"]}
+
+    def __init__(self, fields=None):
+        """
+        * fields
+            Anything.
+        """
+
+
+class _OwnDefaultFastq(Fastq_to_seq_summary):
+    """A subclass whose __init__ has a real fields default."""
+
+    def __init__(self, *args, fields=("read_id",), **kwargs):
+        """
+        * fields
+            Fields.
+        """
+        super().__init__(*args, fields=fields, **kwargs)
+
+
 class _TwoFieldFastq(Fastq_to_seq_summary):
     """A subclass with a default of its own."""
     DEFAULT_FIELDS = ("read_id", "channel")
@@ -1243,7 +1266,7 @@ class TestRecordsCarryOnlyWhatIsAsked:
         assert list(pd.read_csv(out, sep="\t").columns) == expected
 
     @pytest.mark.parametrize("fields", [
-        "", None, [], (), np.array([], dtype=str), pd.Index([])])
+        "", "   ", None, [], (), np.array([], dtype=str), pd.Index([]), iter([])])
     def test_no_names_is_the_default(self, fields):
         """An empty string became one field named "", where it had been the
         default."""
@@ -1254,7 +1277,9 @@ class TestRecordsCarryOnlyWhatIsAsked:
     @pytest.mark.parametrize("fields", [
         b"channel", np.array([b"read_id", b"channel"]), [None], ["read_id", ""],
         [["read_id", "channel"]], {"channel", "run_id"}, frozenset(["channel"]), 5,
-        np.array("channel")])
+        np.array("channel"), {"read_id": 1, "channel": 2},
+        pd.Series(["a", "b"], index=["read_id", "channel"]), ["read_id", "  "],
+        np.array([["read_id", "channel"]])])
     def test_anything_but_names_is_refused(self, fields):
         """str() of each item gave "b'read_id'" for bytes and "None" for None,
         bytes were split into one field per byte, a set's columns came out
@@ -1262,15 +1287,35 @@ class TestRecordsCarryOnlyWhatIsAsked:
         that did not say which argument was wrong."""
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
         conv.include_path = False
-        with pytest.raises(pycoQCError, match="fields must be field names"):
+        with pytest.raises(pycoQCError, match="fields must be"):
             conv._requested_fields(fields)
 
-    def test_names_are_plain_strings(self):
+    @pytest.mark.parametrize("fields", [
+        np.array(["read_id", "channel"]), [np.str_("read_id"), " channel "],
+        (n for n in ["read_id", "channel"])])
+    def test_names_are_plain_stripped_strings(self, fields):
         conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
         conv.include_path = False
-        names = conv._requested_fields(np.array(["read_id", "channel"]))
+        names = conv._requested_fields(fields)
         assert names == ["read_id", "channel"]
         assert all(type(name) is str for name in names)
+
+    def test_a_single_numpy_name_is_plain_too(self):
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        names = conv._requested_fields(np.array(["channel"])[0])
+        assert names == ["channel"] and type(names[0]) is str
+
+    def test_an_error_in_the_callers_iterator_is_left_alone(self):
+        """A TypeError raised by the caller's generator was reported as
+        fields not being names, with its traceback dropped."""
+        def names():
+            yield "read_id"
+            raise TypeError("the caller's own bug")
+        conv = Fastq_to_seq_summary.__new__(Fastq_to_seq_summary)
+        conv.include_path = False
+        with pytest.raises(TypeError, match="the caller's own bug"):
+            conv._requested_fields(names())
 
     def test_an_array_of_fields_for_fast5_and_bam(self, basecalled_fast5_dir, bam_dir,
                                                   tmp_path):
@@ -1284,11 +1329,31 @@ class TestRecordsCarryOnlyWhatIsAsked:
 
     @pytest.mark.parametrize("converter", [Fastq_to_seq_summary, Fast5_to_seq_summary])
     def test_the_notebook_help_shows_the_default_fields(self, converter):
-        """With fields defaulting to None, jhelp showed None as the default,
-        and given the __init__ rather than the class it still did."""
+        """With fields defaulting to None, jhelp showed None as the default."""
         from pycoQC.common import make_arg_dict
-        for target in (converter, converter.__init__):
-            assert make_arg_dict(target)["fields"]["default"] == list(converter.DEFAULT_FIELDS)
+        assert make_arg_dict(converter)["fields"]["default"] == list(converter.DEFAULT_FIELDS)
+
+    def test_a_subclass_shows_its_own_default_fields(self):
+        """The class was found from the __init__'s name, so a subclass
+        inheriting it showed its parent's fields."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(_TwoFieldFastq)["fields"]["default"] == ["read_id", "channel"]
+
+    def test_an_init_alone_shows_its_signature(self):
+        """An __init__ does not say which class uses it, so it is shown as it
+        is rather than guessed at."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(Fastq_to_seq_summary.__init__)["fields"]["default"] is None
+
+    def test_a_real_default_is_not_replaced(self):
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(_OwnDefaultFastq)["fields"]["default"] == ("read_id",)
+
+    def test_a_help_defaults_on_another_class_is_not_called(self):
+        """Any class with a help_defaults attribute had it called, and one
+        that was not a classmethod broke the help."""
+        from pycoQC.common import make_arg_dict
+        assert make_arg_dict(_UnrelatedWithHook)["fields"]["default"] is None
 
     def test_the_help_defaults_are_the_converters_to_give(self):
         """The help looked for a parameter called fields and a DEFAULT_FIELDS
