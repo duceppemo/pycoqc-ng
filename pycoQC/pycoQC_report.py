@@ -78,6 +78,25 @@ def _current_user():
         return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
 
 
+# kaleido starts a headless browser for each image and, now and then, runs
+# its script before the page holding it has loaded ("kaleido_scopes is not
+# defined"). A second try in a fresh browser goes through, so each page gets
+# a few before the error is taken as a broken rendering engine.
+PDF_RENDER_ATTEMPTS = 3
+
+
+def _render_pdf_page(fig, width, height, logger=None):
+    """One figure as PDF bytes, retrying kaleido's intermittent failures"""
+    for attempt in range(1, PDF_RENDER_ATTEMPTS + 1):
+        try:
+            return fig.to_image(format="pdf", width=width, height=height)
+        except Exception as E:
+            if attempt == PDF_RENDER_ATTEMPTS:
+                raise
+            if logger is not None:
+                logger.debug("\t\tRendering failed ({}), trying again".format(E))
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~MAIN CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def _json_safe(obj):
     """Plain Python values JSON can hold, with None for non finite floats.
@@ -187,7 +206,7 @@ class pycoQC_report ():
         if cover is not None:
             try:
                 writer.append(PdfReader(io.BytesIO(
-                    cover.to_image(format="pdf", width=width, height=height))))
+                    _render_pdf_page(cover, width, height, self.logger))))
             except Exception as E:
                 self.logger.info("\t\tCould not render the cover: {}".format(E))
         for method_name, plot_title, fig in self._iter_figures(config_dict, skip_coverage_plot):
@@ -200,8 +219,7 @@ class pycoQC_report ():
             fig.update_layout(title=dict(text=plot_title),
                               width=width, height=page_height)
             try:
-                page = fig.to_image(format="pdf", width=width,
-                                    height=page_height)
+                page = _render_pdf_page(fig, width, page_height, self.logger)
             except Exception as E:
                 # Unlike a plot without data, a rendering engine that does
                 # not work is fatal: every page would fail the same way.

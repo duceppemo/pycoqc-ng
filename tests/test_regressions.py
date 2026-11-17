@@ -541,3 +541,46 @@ class TestImportHasNoSideEffects:
         result = subprocess.run([sys.executable, "-c", code], env=env,
                                 capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
+
+
+class TestPdfRenderRetry:
+    """kaleido now and then evaluates its script before the page holding it
+    has loaded, failing with "kaleido_scopes is not defined". One failed
+    page used to abort the whole PDF report."""
+
+    @staticmethod
+    def flaky(failures):
+        calls = []
+
+        def to_image(fig, **kwargs):
+            calls.append(kwargs)
+            if len(calls) <= failures:
+                raise RuntimeError("ReferenceError: kaleido_scopes is not defined")
+            return b"%PDF"
+        return to_image, calls
+
+    def test_a_transient_failure_is_retried(self, monkeypatch):
+        import plotly.graph_objs as go
+        from pycoQC.pycoQC_report import PDF_RENDER_ATTEMPTS, _render_pdf_page
+        to_image, calls = self.flaky(PDF_RENDER_ATTEMPTS - 1)
+        monkeypatch.setattr(go.Figure, "to_image", to_image)
+        assert _render_pdf_page(go.Figure(), 300, 200) == b"%PDF"
+        assert len(calls) == PDF_RENDER_ATTEMPTS
+        assert calls[-1] == {"format": "pdf", "width": 300, "height": 200}
+
+    def test_a_broken_engine_still_fails_the_report(self, monkeypatch, tmp_path,
+                                                    guppy_summary):
+        pytest.importorskip("pypdf")
+        import plotly.graph_objs as go
+        from pycoQC.pycoQC import pycoQC
+        from pycoQC.pycoQC_report import PDF_RENDER_ATTEMPTS
+        to_image, calls = self.flaky(10 ** 6)
+        monkeypatch.setattr(go.Figure, "to_image", to_image)
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"read_len_1D": {"plot_title": "Read length"}}))
+        with pytest.raises(pycoQCError, match="kaleido_scopes"):
+            pycoQC(summary_file=str(guppy_summary), config_file=str(cfg),
+                   pdf_outfile=str(tmp_path / "r.pdf"), quiet=True)
+        # The cover's failure is logged and skipped, then the first plot
+        # exhausts its attempts and ends the report.
+        assert len(calls) == 2 * PDF_RENDER_ATTEMPTS
