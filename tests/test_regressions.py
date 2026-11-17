@@ -568,6 +568,61 @@ def _exits_silently(code):
     os._exit(code)
 
 
+class TestWhichErrorIsReported:
+    """The first message to arrive decided the outcome, and messages from
+    different processes arrive in no fixed order."""
+
+    @staticmethod
+    def run(*messages):
+        from pycoQC._pipeline import wait_for_workers, worker_context
+        ctx = worker_context()
+        q = ctx.Queue()
+        ps = [ctx.Process(target=_put_after, args=(q, delay, message))
+              for delay, message in messages]
+        for p in ps:
+            p.start()
+        try:
+            return wait_for_workers(ps, q, poll=0.1), ps
+        finally:
+            for p in ps:
+                p.join(10)
+
+    def test_the_cause_wins_over_its_consequence(self):
+        """A lister finding no files leaves the writer with no reads, and
+        whichever said so first was the error the user saw."""
+        from pycoQC._pipeline import LISTER, WRITER
+        with pytest.raises(pycoQCError, match="no files found"):
+            self.run((0, ("error", WRITER, "no reads to write")),
+                     (0.3, ("error", LISTER, "no files found")))
+
+    def test_an_error_after_the_report_still_fails_and_is_read(self):
+        """The parent returned on the writer's report and then joined the
+        workers, and one with a large message still unread could not exit."""
+        from pycoQC._pipeline import PARSER, wait_for_workers, worker_context
+        ctx = worker_context()
+        q = ctx.Queue()
+        ps = [ctx.Process(target=_put_after, args=(q, 0, ("done", {}))),
+              ctx.Process(target=_put_after,
+                          args=(q, 0.3, ("error", PARSER, "x" * 300000)))]
+        for p in ps:
+            p.start()
+        with pytest.raises(pycoQCError):
+            wait_for_workers(ps, q, poll=0.1)
+        for p in ps:
+            p.join(10)
+            assert p.exitcode == 0
+
+    def test_a_clean_run_returns_the_report(self):
+        report, _ = self.run((0, ("done", {"reads": 3})))
+        assert report == {"reads": 3}
+
+    def test_processes_never_started_can_be_stopped(self):
+        """stop_processes joined every process in the list, and joining one
+        that never started raises."""
+        from pycoQC._pipeline import stop_processes, worker_context
+        stop_processes([worker_context().Process(target=_put_after, args=(None, 0, None))])
+
+
 class TestWorkersThatDieSilently:
     """A worker that died without reporting, failing as it started or
     killed for memory, left the parent waiting on the error queue for ever."""
@@ -629,6 +684,12 @@ class _UniqueFastq(Fastq_to_seq_summary):
     """The FASTQ converter dropping repeated read ids, in blocks of 3."""
     unique_read_ids = True
     READS_PER_CHUNK = 3
+
+
+def _put_after(q, delay, message):
+    import time
+    time.sleep(delay)
+    q.put(message)
 
 
 def _report_env(q):
@@ -784,6 +845,17 @@ class TestMetricsFollowTheReadSets:
         gc.collect()
         assert ref() is None
 
+    def test_a_plotter_can_still_be_pickled_and_copied(self, guppy_summary):
+        """The cache's weak references made a plotter that had drawn a table
+        impossible to pickle or deep copy."""
+        import copy
+        import pickle
+        plotter = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary), quiet=True),
+                              quiet=True)
+        plotter.basecall_summary()
+        for clone in (pickle.loads(pickle.dumps(plotter)), copy.deepcopy(plotter)):
+            assert clone._metrics("all")["reads"] == len(plotter.all_df)
+
     def test_a_replaced_read_set_is_measured_again(self, guppy_summary):
         plotter = pycoQC_plot(pycoQC_parse(summary_file=str(guppy_summary), quiet=True),
                               quiet=True)
@@ -793,6 +865,15 @@ class TestMetricsFollowTheReadSets:
 
 
 class TestRecordsCarryOnlyWhatIsAsked:
+
+    def test_asking_for_path_without_include_path_says_so(self, bam_dir, tmp_path, caplog):
+        """The path is not in the BAM, so 'a BAM carries no field called path'
+        blamed the file for an option that was not given."""
+        with caplog.at_level(logging.WARNING):
+            Bam_to_seq_summary(bam_dir=str(bam_dir), seq_summary_fn=str(tmp_path / "s.txt"),
+                               threads=3, fields=["channel", "path"])
+        assert "only written with --include_path" in caplog.text
+        assert "carries no field called path" not in caplog.text
 
     def test_a_bam_record_has_no_path_unless_asked(self, bam_dir):
         from pycoQC.Bam_to_seq_summary import Bam_to_seq_summary as Bam

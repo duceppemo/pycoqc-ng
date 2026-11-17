@@ -220,6 +220,12 @@ class Bam_to_seq_summary(ConverterPipeline):
         """
         if self.fields:
             wanted = [f for f in self.fields if f != "read_id"]
+            # The path is not read from the BAM: it is only there with
+            # --include_path, and its absence says nothing about the file.
+            if "path" in wanted and not self.include_path:
+                notes.append("WARNING: the path column is only written with "
+                             "--include_path, so path left out of the summary")
+                wanted.remove("path")
             missing = [f for f in wanted if f not in df.columns]
             if missing:
                 notes.append(
