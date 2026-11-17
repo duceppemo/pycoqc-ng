@@ -250,7 +250,8 @@ class Fastq_to_seq_summary(ConverterPipeline):
         * max_fastq
             Maximum number of file to try to parse. 0 to deactivate
         * threads
-            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3(default = 4)
+            Total number of threads to use. 1 thread is used for the reader and 1 for the writer. Minimum 3, and at most 31 on Windows before
+            Python 3.13 (default = 4)
         * fields
             list of field names corresponding to attributes to try to fetch from the fastq files. List a valid field names:
             mean_qscore_template, sequence_length_template, called_events, skip_prob, stay_prob, step_prob, strand_score, read_id, start_time,
