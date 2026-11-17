@@ -58,9 +58,7 @@ class Fast5_to_seq_summary(ConverterPipeline):
         "barcode_score": {"grp": "summary_barcoding", "attrs": "barcode_score"},
     }
 
-    # The fields written when none are named, here and on the command line,
-    # which reads its --fields default from this. A subclass changes its
-    # default here.
+    # See ConverterPipeline.DEFAULT_FIELDS.
     DEFAULT_FIELDS = (
         "read_id", "run_id", "channel", "start_time", "duration",
         "sequence_length_template", "mean_qscore_template",

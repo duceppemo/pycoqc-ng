@@ -427,8 +427,11 @@ def doc_func(func):
 def make_arg_dict(func):
     """Parse the arguments default value, type and doc"""
 
-    # Init method for classes
+    # Init method for classes. A converter's fields default to None, which
+    # stands for its DEFAULT_FIELDS; those are what the help shows.
+    default_fields = None
     if inspect.isclass(func):
+        default_fields = getattr(func, "DEFAULT_FIELDS", None)
         func = func.__init__
 
     if inspect.isfunction(func) or inspect.ismethod(func):
@@ -444,6 +447,8 @@ def make_arg_dict(func):
                     # Get default value if available
                     if p.default == inspect._empty:
                         d[name]["required"] = True
+                    elif name == "fields" and p.default is None and default_fields is not None:
+                        d[name]["default"] = list(default_fields)
                     else:
                         d[name]["default"] = p.default
 

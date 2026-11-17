@@ -355,8 +355,13 @@ class ConverterPipeline:
     # The file extensions `_input_files` looks for.
     extensions = ()
 
-    # The fields written when none are named, which is also the command
-    # line's --fields default. None is every field the input carries.
+    # The fields written when none are named: fields=None or an empty list in
+    # Python, and the --fields default of the command line, which reads it
+    # from here, as the notebook help does. A converter, or a subclass of
+    # one, sets its default here and nowhere else; its __init__ takes
+    # fields=None. None here is every field the input carries. The command
+    # line once kept lists of its own, and calling the FASTQ class directly
+    # silently dropped the pass or fail column the command produced.
     DEFAULT_FIELDS = None
 
     #~~~~~~~~~~~~~~SET UP~~~~~~~~~~~~~~#
@@ -414,10 +419,15 @@ class ConverterPipeline:
         None. Asking for path alone, without --include_path, leaves the read
         ids, not every field and not none.
 
-        Any sequence of names will do, a numpy array or a DataFrame's columns
-        included, whose truth value is ambiguous: hence len, not `not`.
+        Any iterable of names will do: a list, a numpy array, a DataFrame's
+        columns, a generator. It is made a list first, since an array's truth
+        value is ambiguous and a generator has no length. A single name given
+        as a string is one field, not one per letter.
         """
-        if fields is None or len(fields) == 0:
+        if isinstance(fields, str):
+            fields = [fields]
+        fields = None if fields is None else [str(f) for f in fields]
+        if not fields:
             fields = self.DEFAULT_FIELDS
         if fields is None:
             return None
