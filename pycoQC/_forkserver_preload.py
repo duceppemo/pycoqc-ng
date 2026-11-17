@@ -15,10 +15,11 @@ not linear algebra.
 import importlib
 import os
 
-for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
-             "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ[_var] = "1"
-os.environ["JE_ARROW_MALLOC_CONF"] = "background_thread:false"
+from pycoQC._worker_env import WORKER_ENV
+
+# The server is started with these already, by ConverterPipeline; set here
+# too so the server stays single threaded however it was started.
+os.environ.update(WORKER_ENV)
 
 # What a converter's command line imports, so a worker importing the
 # parent's main script finds it all loaded.

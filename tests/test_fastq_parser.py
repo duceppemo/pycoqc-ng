@@ -7,6 +7,7 @@ distributed, must not alter the result.
 """
 
 import gzip
+import os
 
 import pandas as pd
 import pytest
@@ -132,9 +133,10 @@ class TestTruncatedInput:
 
 
 class TestWorkItems:
-    """Parsers are handed whole files when there are enough to go round,
-    so reading and decompressing is spread over them, and blocks of lines
-    when there are fewer files than parsers, so no parser sits idle."""
+    """Parsers are handed whole files when each is about a parser's share
+    of the input or less, so reading and decompressing is spread over them,
+    and a larger file is split into blocks so no parser sits idle while one
+    works through it."""
 
     @staticmethod
     def converter(fastq_dir, parsers, reads_per_chunk=1000):
@@ -152,12 +154,30 @@ class TestWorkItems:
         assert all(chunk is None for _, _, chunk in items)
 
     def test_too_few_files_are_split_into_blocks(self, multi_fastq_dir):
-        items = list(self.converter(multi_fastq_dir, parsers=4,
+        items = list(self.converter(multi_fastq_dir, parsers=6,
                                     reads_per_chunk=3)._work_items())
         assert all(chunk is not None for _, _, chunk in items)
         reads = sum(len(chunk) for _, _, chunk in items) // 4
         assert reads == 30
         assert max(len(chunk) for _, _, chunk in items) == 3 * 4
+
+    def test_one_large_file_is_split_among_small_ones(self, reads, tmp_path):
+        """One large pass file beside small fail files went to one parser
+        whole once there were as many files as parsers."""
+        def write(name, records):
+            with gzip.open(tmp_path / name, "wt") as fh:
+                for read_id, seq, qual in records:
+                    fh.write(f"@{read_id} ch=1\n{seq}\n+\n{qual}\n")
+
+        write("big.fastq.gz", reads[:60])
+        for n in range(3):
+            write(f"small_{n}.fastq.gz", reads[60 + n:61 + n])
+        items = list(self.converter(tmp_path, parsers=4,
+                                    reads_per_chunk=5)._work_items())
+        whole = sorted(os.path.basename(fn) for fn, _, chunk in items if chunk is None)
+        split = {os.path.basename(fn) for fn, _, chunk in items if chunk is not None}
+        assert whole == ["small_0.fastq.gz", "small_1.fastq.gz", "small_2.fastq.gz"]
+        assert split == {"big.fastq.gz"}
 
     def test_both_ways_give_the_same_summary(self, multi_fastq_dir, tmp_path):
         out = {}

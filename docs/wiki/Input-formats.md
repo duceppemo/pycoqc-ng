@@ -63,6 +63,15 @@ plots available.
 FASTQ input additionally yields **%GC per read**, which the basecaller summary does not
 carry, enabling the %GC plots.
 
+A FASTQ whose headers carry Dorado's read tags, tab separated after the read id, gives
+the run health columns too: `duration`, `template_duration`, `end_reason` and `mux`,
+the same as from a BAM (see below). `samtools fastq -T '*'` writes such headers from a
+Dorado BAM:
+
+```
+@158e3709-f3d2-43ee-afaa-dd791bd56ac6	BC:Z:MBWGS426	qs:f:14.8186	du:f:7.4	ns:i:37000	ts:i:1210	mx:i:1	ch:i:150	st:Z:2026-02-21T14:22:31.990000+00:00	...	er:Z:signal_positive
+```
+
 Reads under a path containing `fail` are marked as failing, which matches the
 `fastq_pass` and `fastq_fail` layout the basecallers write. `fail` has to be a whole
 word, and only the part of the path below the directory you give is considered, so a
@@ -78,6 +87,21 @@ For **unaligned** BAM as produced by `dorado basecaller`. Metadata comes from th
 Dorado writes: `st` (start time), `ch` (channel), `BC` (barcode), `fn` (source file),
 plus the read group for the run id, flow cell, device, basecalling model, barcode,
 sample id and run start time. Like FASTQ, this gives %GC.
+
+The run health plots need four more columns, also from Dorado's tags:
+
+| Column | From |
+|---|---|
+| `duration` | `du`, the read's time in the pore, in seconds |
+| `template_duration` | `du × (ns − ts) / ns`: the duration less the adapter, from the signal sample count `ns` and the samples trimmed from the start `ts` |
+| `end_reason` | `er`, why the read ended |
+| `mux` | `mx`, which of the channel's pores read it |
+
+An aligned BAM works too: only primary records are read, since a secondary or
+supplementary record is a second placement of a read already counted. A read id found
+in more than one file, as when a directory holds an aligned and an unaligned copy of a
+run, is written once, keeping the last file's, and the converter says how many there
+were.
 
 The quality score is recomputed from the per-base qualities rather than taken from the
 `qs` tag, so it is the mean error probability expressed as a phred score, the same
@@ -182,8 +206,9 @@ Fast5_to_seq_summary -f fast5_dir/ -s sequencing_summary.txt -t 8
 ```
 
 The legacy raw-signal format, superseded by POD5. Both the single-read and the
-multi-read layouts are read; the multi-read form is detected from the file's
-`file_type` attribute.
+multi-read layouts are read. The multi-read form is detected from the file's
+`file_type` attribute, or from its layout (top-level `read_` groups and no `Raw`
+group) in the files MinKNOW wrote before it added that attribute.
 
 ### Basecalls written back into the FAST5
 
@@ -195,7 +220,7 @@ real read lengths and quality scores:
 |---|---|
 | `sequence_length_template`, `mean_qscore_template` | `Analyses/Basecall_1D_000/Summary/basecall_1d_template` |
 | `barcode_arrangement` | `Analyses/Barcoding_000/Summary/barcoding` |
-| `read_id`, `start_time`, `duration` | the `Raw` group |
+| `read_id`, `start_time`, `duration`, `start_mux` | the `Raw` group |
 | `channel`, sampling rate | `channel_id` |
 | `run_id`, `sample_id`, `device_id`, `flow_cell_id` | `tracking_id` |
 

@@ -77,13 +77,16 @@ class SummaryTables:
         worked out five times per report and the reference length eight.
         """
         df = self._level_dfs(df_level)[0]
-        # Keyed on the frame as well, so replacing one is never answered
-        # from the old one.
-        key = (df_level, id(df))
+        # Each entry keeps the frame it was computed from and is used only
+        # for that same object, so a read set that has been replaced is
+        # computed again. Keying on id(df) alone could not promise that:
+        # an id is reused once its frame is freed.
         cache = self.__dict__.setdefault("_metrics_cache", {})
-        if key not in cache:
-            cache[key] = self._read_set_metrics(df)
-        return cache[key]
+        frame, metrics = cache.get(df_level, (None, None))
+        if frame is not df:
+            metrics = self._read_set_metrics(df)
+            cache[df_level] = (df, metrics)
+        return metrics
 
     def _read_set_metrics(self, df):
         m = OrderedDict()

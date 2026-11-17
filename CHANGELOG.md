@@ -29,7 +29,7 @@ fixes fell out of.
 * The converters carry what these need. `Bam_to_seq_summary` and
   `Fastq_to_seq_summary` write `duration`, `template_duration`, `end_reason`
   and `mux` from Dorado's `du`, `ns`, `ts`, `er` and `mx` tags (for FASTQ,
-  basecalled with `-T`). `Pod5_to_seq_summary` writes `end_reason` and `mux`,
+  when its headers carry those tags). `Pod5_to_seq_summary` writes `end_reason` and `mux`,
   and `Fast5_to_seq_summary` adds `start_mux` to its default fields. Summaries
   from Guppy, Dorado and MinKNOW already carry these columns, and pycoQC now
   keeps them rather than discarding them on reading.
@@ -112,12 +112,19 @@ fixes fell out of.
   converter now supplies only how a file becomes records and any last
   change to the table. Rows come out in the order the files are listed,
   whatever the number of threads, and what the user is told is logged by
-  the calling process rather than a worker.
+  the calling process rather than a worker. The summary is written only
+  once every worker has finished: a conversion that fails leaves none
+  behind, and an earlier summary at the same path is kept. Read ids
+  repeated across files and within one file are reported apart, since only
+  the first suggests the directory holds a run twice.
 * `Bam_to_seq_summary` and `Pod5_to_seq_summary` parse in processes rather
   than threads. Their per-read work holds Python's GIL, so the threads only
   took turns: on 54,000 BAM records, 8 threads took 14.1 s against 5.9 s
   for 3. They now take 2.7 s with 8. They print the same progress and
   totals as the FASTQ and FAST5 converters in place of their own lines.
+  Workers on every platform start with numpy's and pyarrow's thread pools
+  capped at one thread, which the converter modules used to set for the
+  whole process on import.
 * The figures in the run, basecall and alignment summary tables and in the
   JSON report are computed once per read set and shared, in place of a
   method per figure called again by each table and again by the report.
@@ -140,9 +147,10 @@ fixes fell out of.
 * `Fastq_to_seq_summary` is about 1.8 times faster with six parsers. One
   process used to decompress every file and pass all of its text, 1.2 GB
   for 180,000 reads, to the parsers, and adding parsers barely helped. Each
-  parser now reads its own files when there are at least as many files as
-  parsers, and blocks of lines are queued only when there are fewer. Parsers
-  send records to the writer in batches rather than one read at a time.
+  parser now reads its own files, and only a file well over an even share
+  of the input is split into blocks of reads, so that one large file among
+  small ones is still parsed by every parser. Parsers send records to the
+  writer in batches rather than one read at a time.
 * The command line prints a one line `ERROR:` message and exits with status
   1 for problems with the input, instead of a traceback. A converter's
   worker sends back the message alone for such problems, and its traceback

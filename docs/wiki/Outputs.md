@@ -128,6 +128,8 @@ These need columns that newer basecallers and the converters write: `end_reason`
   step down marks something that happened to the whole flow cell at once. The
   intervals default to an hour and a half, MinKNOW's mux scan cycle: shorter or
   mismatched ones catch a different number of scans each and the line saw-tooths.
+  Their length is adjusted slightly so that equal intervals span the run, rather than
+  the last one holding only the end of the run and its count dropping as a result.
   The per-mux lines show whether one of a channel's four pores wore out before the
   others.
 

@@ -100,17 +100,19 @@
   </g>
 
   <rect class="summary" x="600" y="64" width="220" height="272" rx="11"/>
-  <text class="name"  x="710" y="162" text-anchor="middle">sequencing_summary.txt</text>
-  <text class="label" x="710" y="190" text-anchor="middle">One summary table</text>
-  <text class="note"  x="710" y="210" text-anchor="middle">read id, length, quality,</text>
-  <text class="note"  x="710" y="226" text-anchor="middle">channel, time, barcode</text>
+  <text class="name"  x="710" y="154" text-anchor="middle">sequencing_summary.txt</text>
+  <text class="label" x="710" y="182" text-anchor="middle">One summary table</text>
+  <text class="note"  x="710" y="202" text-anchor="middle">read id, length, quality,</text>
+  <text class="note"  x="710" y="218" text-anchor="middle">channel, time, barcode,</text>
+  <text class="note"  x="710" y="234" text-anchor="middle">end reason, mux, duration</text>
 
   <rect class="partial" x="600" y="368" width="220" height="128" rx="11"/>
-  <text class="warn"      x="710" y="406" text-anchor="middle">Run table, no sequence</text>
-  <text class="note-warn" x="710" y="428" text-anchor="middle">which pore, when, how long,</text>
-  <text class="note-warn" x="710" y="444" text-anchor="middle">which barcode. No read</text>
-  <text class="note-warn" x="710" y="460" text-anchor="middle">length, quality or yield</text>
-  <text class="note-warn" x="710" y="482" text-anchor="middle">until the run is basecalled</text>
+  <text class="warn"      x="710" y="398" text-anchor="middle">Run table, no sequence</text>
+  <text class="note-warn" x="710" y="418" text-anchor="middle">which pore and mux, when,</text>
+  <text class="note-warn" x="710" y="434" text-anchor="middle">how long, end reason (POD5),</text>
+  <text class="note-warn" x="710" y="450" text-anchor="middle">which barcode. No read</text>
+  <text class="note-warn" x="710" y="466" text-anchor="middle">length, quality or yield</text>
+  <text class="note-warn" x="710" y="484" text-anchor="middle">until the run is basecalled</text>
 
   <g class="wire-ok" marker-end="url(#a-ok)">
     <path d="M 828 186 L 856 186"/>
