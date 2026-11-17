@@ -368,7 +368,7 @@ class pycoQC_parse():
         if read_dict:
             read_df = pd.DataFrame.from_dict(read_dict, orient="index")
             read_df.index.name = "read_id"
-            read_df.reset_index(inplace=True)
+            read_df = read_df.reset_index()
         else:
             read_df = pd.DataFrame()
 

@@ -84,6 +84,8 @@ fixes fell out of.
   `summary_stats_dict`, failed after calling it.
 * POD5 read ids repeated across files were dropped in silence, and POD5 or
   FAST5 files holding no reads gave an empty summary rather than an error.
+* pandas 3.1 deprecates the `inplace` keyword. The four remaining
+  `inplace=True` calls now assign the result instead.
 
 **Changed**
 
