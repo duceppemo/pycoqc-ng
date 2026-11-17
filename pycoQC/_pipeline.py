@@ -30,7 +30,8 @@ import sys
 import tempfile
 import threading
 from collections import Counter
-from collections.abc import Mapping
+import io
+from collections.abc import Iterable, Mapping, ValuesView
 from contextlib import contextmanager
 from multiprocessing.connection import wait as wait_ready
 from time import time
@@ -367,11 +368,24 @@ class ConverterPipeline:
     DEFAULT_FIELDS = None
 
     @classmethod
-    def help_defaults(cls):
-        """Defaults to show in place of the signature's: fields=None stands
-        for DEFAULT_FIELDS, listed, or every field where that is None. The
-        command line and the notebook help both read them from here."""
-        return {"fields": None if cls.DEFAULT_FIELDS is None else list(cls.DEFAULT_FIELDS)}
+    def pycoqc_help_default(cls, name, default):
+        """The default to show for argument `name`, whose signature default
+        is `default`. The command line and the notebook help both ask here.
+
+        A fields default that names no field stands for DEFAULT_FIELDS,
+        shown as a list, or as None for every field. It is judged by
+        _field_list, the rule _requested_fields applies when the converter
+        runs, so the help and the run cannot disagree on what is empty. Any
+        other default is shown as it is.
+        """
+        if name == "fields":
+            try:
+                stand_in = not cls._field_list(default)
+            except pycoQCError:
+                stand_in = False
+            if stand_in:
+                return None if cls.DEFAULT_FIELDS is None else list(cls.DEFAULT_FIELDS)
+        return default
 
     #~~~~~~~~~~~~~~SET UP~~~~~~~~~~~~~~#
     def _configure(self, in_dir, seq_summary_fn, max_files, threads,
@@ -471,15 +485,16 @@ class ConverterPipeline:
             refused = "bytes; give names as strings"
         elif isinstance(fields, (set, frozenset)):
             refused = "a set, which has no order; give a list"
-        elif isinstance(fields, (Mapping, pd.Series, pd.DataFrame)):
+        elif isinstance(fields, (Mapping, ValuesView, pd.Series, pd.DataFrame)):
             refused = "a {}; give its names as a list".format(type(fields).__name__)
+        elif isinstance(fields, io.IOBase):
+            refused = "a file; read its names into a list"
         elif isinstance(fields, np.ndarray) and fields.ndim != 1:
             refused = "a {}-dimensional array; give a list".format(fields.ndim)
-        else:
-            try:
-                fields = iter(fields)
-            except TypeError:
-                refused = "a {}".format(type(fields).__name__)
+        elif not isinstance(fields, Iterable):
+            # Asked rather than tried: a TypeError from the caller's own
+            # __iter__ is theirs, and passes through as it is.
+            refused = "a {}".format(type(fields).__name__)
         if refused:
             raise pycoQCError("fields must be field names, not " + refused)
         names = []
@@ -488,9 +503,15 @@ class ConverterPipeline:
                 raise pycoQCError(
                     "fields must be field names, as strings; got {!r}".format(name))
             # numpy's str_ is a str, but plain names keep the columns plain.
-            name = str(name).strip()
-            if name:
-                names.append(name)
+            names.append(str(name).strip())
+        # All blank is no name at all, the default, as --fields "" gives
+        # [""]. A blank among names is more likely a slip, such as a split on
+        # the wrong separator, than a wish, and is refused.
+        if not any(names):
+            return []
+        if not all(names):
+            raise pycoQCError(
+                "fields must be field names; a blank one is among {}".format(names))
         return names
 
     def _input_files(self):

@@ -224,7 +224,7 @@ def _run_converter(args, converter, kind, fields_help=None):
                          "(default: %(default)s)".format(kind))
     parser.add_argument("--basecall_id", type=int, default=0, help=basecall_help)
     if fields_help:
-        default = converter.help_defaults()["fields"]
+        default = converter.pycoqc_help_default("fields", None)
         if default is not None:
             fields_help += "(default: %(default)s)"
         parser.add_argument("--fields", type=str, nargs="+", default=default,

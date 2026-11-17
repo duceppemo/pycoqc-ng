@@ -241,8 +241,9 @@ output rather than against the test fixtures.
   class (`jhelp(Fastq_to_seq_summary)`) shows as the default; a subclass
   changes its default there. `fields` takes a single name as a string, or
   names in any ordered iterable: a list, a tuple, a numpy or pandas array, a
-  pandas Index, `dict.keys()`, a generator. Blank names are left out, so
-  `--fields ""` is the default. Bytes, sets, dicts, Series and numbers are
+  pandas Index, `dict.keys()`, a generator. Blank names alone, as
+  `--fields ""` gives, are the default; a blank among names is refused.
+  Bytes, sets, dicts and their values, Series, files and numbers are
   refused with an error naming `fields`, as each gave wrong names, or
   columns in a different order on each run.
 * FASTQ records were collected into a dict keyed by read id, so repeated
