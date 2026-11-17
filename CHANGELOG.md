@@ -1,6 +1,6 @@
 # Changelog
 
-### Unreleased
+### 2026-11-17 — pycoqc-ng 3.2.0
 
 Every entry point was run against real data: the original Albacore and
 Guppy summaries, a MinKNOW R10.4.1 summary, a 1.25 million read Dorado
