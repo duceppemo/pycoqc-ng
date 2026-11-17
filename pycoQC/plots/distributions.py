@@ -265,11 +265,10 @@ class Distributions:
             hovermode="closest",
             plot_bgcolor="whitesmoke",
             legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
-            updatemenus=self._level_menu(prepared, "update", x=-0.2, y=0,
-                                         xanchor='left', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "update"),
             width=width,
             height=height,
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             xaxis={"title": x_lab, "type": x_scale, "zeroline": False, "showline": True},
             yaxis={"title": "Read density", "zeroline": False, "showline": True, "fixedrange": True,
                    "range": ld1["yaxis.range"]})
@@ -313,13 +312,17 @@ class Distributions:
         if smooth_sigma:
             count_y = gaussian_filter1d(count_y, sigma=smooth_sigma)
 
-        # Percentile markers, each a vertical line labelled at its top
+        # Percentile markers, each a vertical line labelled at its top. The
+        # middle three sit close together on a narrow distribution, and on
+        # the same line their labels printed over one another, so each label
+        # is a step lower than the one before, over three steps.
         stat = np.percentile(data, [10, 25, 50, 75, 90])
         y_max = count_y.max()
+        tops = [y_max * (1, 0.86, 0.72)[n % 3] for n in range(len(stat))]
 
         data_dict = dict(
             x=[count_x] + [[v, v] for v in stat],
-            y=[count_y] + [[0, y_max] for _ in stat],
+            y=[count_y] + [[0, top] for top in tops],
             name=names,
             text=[""] + [["", "{}<br>{:,.2f}".format(n, v)] for n, v in zip(names[1:], stat)])
 
@@ -613,11 +616,10 @@ class Distributions:
             hovermode="closest",
             plot_bgcolor="whitesmoke",
             legend={"x": -0.2, "y": 1, "xanchor": 'left', "yanchor": 'top'},
-            updatemenus=self._level_menu(prepared, "restyle", x=-0.2, y=0,
-                                         xanchor='left', yanchor='bottom'),
+            updatemenus=self._level_menu(prepared, "restyle"),
             width=width,
             height=height,
-            title={"text":plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"},
+            title=self._title(plot_title),
             xaxis={"title": x_lab, "showgrid": True, "zeroline": False, "showline": True, "type": x_scale},
             yaxis={"title": y_lab, "showgrid": True, "zeroline": False, "showline": True, "type": y_scale})
 

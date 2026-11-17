@@ -342,7 +342,7 @@ class SummaryTables:
         layout = go.Layout(
             width=width,
             height=height,
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+            title=self._title(plot_title))
 
         return go.Figure(data=data, layout=layout)
 
@@ -420,9 +420,8 @@ class SummaryTables:
             width=width,
             height=height,
             updatemenus=self._level_menu(
-                [(label, dict(cells=cells(dd))) for label, dd in prepared], "restyle",
-                x=-0.2, y=0.5, xanchor='left', yanchor='bottom'),
-            title={"text": plot_title, "xref": "paper", "x": 0.5, "xanchor": "center"})
+                [(label, dict(cells=cells(dd))) for label, dd in prepared], "restyle"),
+            title=self._title(plot_title))
 
         return go.Figure(data=data, layout=layout)
 

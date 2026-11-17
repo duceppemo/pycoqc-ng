@@ -37,6 +37,15 @@ LEVELS = ("all", "pass", "fail")
 # which cost a tick label and a rectangle in the report.
 COVERAGE_MAX_LABELLED_REFS = 100
 
+# Where a plot's buttons go: in a row above the plot area, from its left
+# edge, under the title. Stacked down the left hand side, they shared that
+# margin with the legend and the y axis title and ran into one or the
+# other, as soon as either was long or a plot had six buttons rather than
+# three. The row sits in the top margin, which plotly leaves empty.
+MENU_ROW = {"type": "buttons", "direction": "right",
+            "x": 0, "xanchor": "left", "y": 1, "yanchor": "bottom",
+            "pad": {"b": 10}}
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CLASS~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 class PlotBase:
@@ -330,7 +339,7 @@ class PlotBase:
         return "{} {}".format(df_level.capitalize(), unit)
 
     @staticmethod
-    def _level_menu(prepared, method, **position):
+    def _level_menu(prepared, method):
         """The row of buttons switching a plot between read sets.
 
         * prepared
@@ -338,13 +347,20 @@ class PlotBase:
             a trace update, and for "update" a layout update after it.
         * method
             "restyle" or "update".
-        * position
-            Placement of the buttons, passed to the updatemenu.
         """
-        return [dict(type="buttons", active=0,
+        return [dict(MENU_ROW, active=0,
                      buttons=[dict(label=label, method=method, args=list(args))
-                              for label, *args in prepared],
-                     **position)]
+                              for label, *args in prepared])]
+
+    @staticmethod
+    def _title(text):
+        """A plot's title, centred over the plot area at the top of the figure.
+
+        Pinned to the top rather than left to plotly, which centres it in
+        the top margin, where it would sit on the row of buttons.
+        """
+        return {"text": text, "xref": "paper", "x": 0.5, "xanchor": "center",
+                "yref": "container", "y": 1, "yanchor": "top", "pad": {"t": 20}}
 
     @staticmethod
     def _median_or_nan(values):

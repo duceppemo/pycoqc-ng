@@ -103,6 +103,18 @@ fixes fell out of.
   failing as it started, left the parent waiting for ever. The parent now
   checks its workers' exit codes and stops with an error, which for a
   script missing its `if __name__ == "__main__":` guard says so.
+* The buttons switching a plot between read sets ran down its left hand
+  side, where the legend and the y axis title also were. They covered one
+  or the other, and on the output and channel plots, with six buttons,
+  both. Every plot's buttons now sit in a row above the plot area, under
+  the title.
+* The percentile labels of the distribution plots printed over one another
+  wherever the percentiles were close together, which on a translocation
+  speed plot left the middle three unreadable. Each label now sits a step
+  lower than the one before.
+* The wiki's example figures are re-rendered with these changes. New ones
+  show the translocation speed, the end reasons, the active channels, the
+  time in pore of a run without basecalls, and the read length per barcode.
 
 **Changed**
 
