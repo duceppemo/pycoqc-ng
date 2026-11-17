@@ -224,9 +224,8 @@ def _run_converter(args, converter, kind, fields_help=None):
                          "(default: %(default)s)".format(kind))
     parser.add_argument("--basecall_id", type=int, default=0, help=basecall_help)
     if fields_help:
-        default = converter.DEFAULT_FIELDS
+        default = converter.help_defaults()["fields"]
         if default is not None:
-            default = list(default)
             fields_help += "(default: %(default)s)"
         parser.add_argument("--fields", type=str, nargs="+", default=default,
                             help=fields_help)

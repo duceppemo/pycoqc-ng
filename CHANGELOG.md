@@ -238,9 +238,10 @@ output rather than against the test fixtures.
   without `--include_path` gives the read ids. The `fields` argument of
   `Fastq_to_seq_summary` and `Fast5_to_seq_summary` now defaults to `None`,
   standing for the class's `DEFAULT_FIELDS`, which the notebook help shows
-  as the default; a subclass changes its default there. `fields` takes any
-  iterable of names, a numpy array or a generator included, and a single
-  name as a string.
+  as the default; a subclass changes its default there. `fields` takes an
+  ordered iterable of names, a numpy array or a generator included, or a
+  single name as a string; an empty one is the default. Anything else, such
+  as bytes, a set or a number, is refused with an error naming `fields`.
 * FASTQ records were collected into a dict keyed by read id, so repeated
   ids merged, but only when they fell in the same 1,000 read block.
 * A bam or fastq directory holding no reads wrote an empty summary or
