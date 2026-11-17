@@ -22,7 +22,6 @@ than only a worker's stderr.
 
 #~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~#
 # Standard library imports
-import inspect
 import logging
 import multiprocessing as mp
 import os
@@ -116,10 +115,14 @@ def name_start(name, limit=50):
     A staging directory is named after the summary so that one left by a
     killed run is easy to find, and only the start of the name is needed
     for that. The limit is in bytes: a file name holds at most 255 of them,
-    and 150 characters of Chinese is 450. The summary goes inside the
-    directory under its whole name, so a short start also keeps that path
-    within Windows' 260 characters. Bytes that are not valid in the file
-    system's encoding are kept, as one byte each.
+    and 150 characters of Chinese is 450. Bytes that are not valid in the
+    file system's encoding are kept, as one byte each.
+
+    The summary goes inside the directory under its whole name, so the path
+    written to is up to about 72 characters longer than the summary's own.
+    A short start keeps that small, but on Windows without long paths
+    enabled, a summary within that much of the 260 character limit cannot
+    be written.
     """
     start, size = [], 0
     for char in name:
@@ -186,7 +189,9 @@ def wait_for_workers(workers, grace=0.5):
             timeout = deadline - time()
             if timeout <= 0:
                 break
-        ready = wait_ready(list(pipes) + list(sentinels), timeout)
+        # Each object once: on Windows, CPython 3.13's batched wait can list
+        # a handle twice, and a second recv on a drained pipe blocks.
+        ready = list(dict.fromkeys(wait_ready(list(pipes) + list(sentinels), timeout)))
         # Messages first, so a report is in hand before an exit is judged.
         for obj in sorted(ready, key=lambda o: o in sentinels):
             if obj in pipes:
@@ -220,11 +225,16 @@ def _send_error(status, stage, error):
     """
     try:
         status.send(("error", stage, format_worker_error(error)))
+        sent = True
     except OSError:
-        # The parent has stopped listening, as on Ctrl-C, and the error the
-        # pipe raises would only hide the one that stopped this worker.
-        pass
-    if not isinstance(error, Exception):
+        sent = False
+    # Unsent, as when the parent has stopped listening on Ctrl-C, the error
+    # itself is raised: not the pipe's, which would hide it, and not
+    # nothing, since a lister that returned would exit cleanly having sent
+    # the parsers their stop signals, and a short summary would pass for a
+    # complete one. Raised here rather than in the except clause, so that it
+    # does not carry the pipe's error, and the pickled message, along.
+    if not sent or not isinstance(error, Exception):
         raise error
 
 
@@ -342,6 +352,10 @@ class ConverterPipeline:
     # The file extensions `_input_files` looks for.
     extensions = ()
 
+    # The fields written when none are named, which is also the command
+    # line's --fields default. None is every field the input carries.
+    DEFAULT_FIELDS = None
+
     #~~~~~~~~~~~~~~SET UP~~~~~~~~~~~~~~#
     def _configure(self, in_dir, seq_summary_fn, max_files, threads,
                    basecall_id, include_path, verbose_level):
@@ -391,13 +405,14 @@ class ConverterPipeline:
         With --include_path, `keep_path` leaves it where it was listed, for a
         converter that places the columns in the order asked for.
 
-        An empty list is the converter's default, as it was for BAM: the
-        FASTQ converter wrote nothing for each read and failed on finding no
-        reads. Asking for path alone, without --include_path, leaves the read
+        None or an empty list is the converter's DEFAULT_FIELDS, as both
+        were for BAM: the FASTQ converter wrote nothing for each read of an
+        empty list and failed on finding no reads, and with FAST5 failed on
+        None. Asking for path alone, without --include_path, leaves the read
         ids, not every field and not none.
         """
-        if fields is not None and len(fields) == 0:
-            fields = inspect.signature(type(self).__init__).parameters["fields"].default
+        if not fields:
+            fields = self.DEFAULT_FIELDS
         if fields is None:
             return None
         fields = list(dict.fromkeys(fields))

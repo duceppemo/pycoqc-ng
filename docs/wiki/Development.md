@@ -92,8 +92,10 @@ All four converters run the same pipeline, `ConverterPipeline` in `pycoQC/_pipel
   the rows on `out_q` in batches of up to 1,000, tagged with the file's number;
 * the **writer** puts the batches back in file order, drops repeated read ids where the
   converter asks for that, writes the summary under its own name in a directory of
-  this run's own beside it (`<summary>.pycoqc-tmp-<random>/`), so compression is still
-  inferred from the name, and sends back a report;
+  this run's own beside it (`<start of summary name>.pycoqc-tmp-<random>/`, the start
+  being at most 50 bytes), so compression is still inferred from the name, and sends
+  back a report. The path written to is up to about 72 characters longer than the
+  summary's own, which matters on Windows without long paths enabled;
 * the **calling process** hears from each worker on a pipe of its own, and sleeps until
   one sends something or exits, reading every pipe to its end: a worker cannot exit
   while what it sent is unread, and messages from different workers arrive in no fixed
