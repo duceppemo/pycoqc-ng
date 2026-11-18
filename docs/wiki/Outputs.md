@@ -195,7 +195,7 @@ and MultiQC-style aggregation. Computed on **all** reads, not the plotting sampl
 
 ```json
 {
-  "pycoqc": { "version": "3.2.0", "date": "17/11/26" },
+  "pycoqc": { "version": "3.2.1", "date": "17/11/26" },
   "All Reads": {
     "run": { ... },
     "basecall": {

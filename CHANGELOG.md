@@ -1,6 +1,6 @@
 # Changelog
 
-### Unreleased
+### 2026-11-17 — pycoqc-ng 3.2.1
 
 **Fixed**
 
