@@ -336,6 +336,57 @@ class TestButtonsKeepClearOfLegendsAndAxes:
             assert (title.yref, title.y, title.yanchor) == ("container", 1, "top"), name
 
 
+@pytest.fixture(scope="module")
+def rate_figure(tmp_path_factory, aligned_bam):
+    summary = write_summary(tmp_path_factory.mktemp("rate") / "s.txt")
+    parser = pycoQC_parse(summary_file=str(summary), bam_file=str(aligned_bam), quiet=True)
+    return pycoQC_plot(parser, quiet=True).alignment_rate()
+
+
+class TestAlignmentRateFigure:
+
+    def test_shares_are_short_enough_for_their_column(self):
+        """plotly's ".3p" wrote a few hundred bases in half a gigabase out
+        as 0.0000012800%, and the cell ran into the next one."""
+        from pycoQC.plots.alignment import _bases_text, _share_text
+        assert [_share_text(f) for f in (1, 0.879, 0.0503, 1.28e-8, 0)] == \
+            ["100%", "87.9%", "5.03%", "≤0.001%", "0%"]
+        assert [_bases_text(n) for n in (14338032127, 545854247, 33820, 109)] == \
+            ["14.34 Gb", "545.85 Mb", "33.82 kb", "109 b"]
+
+    def test_table_cells_are_preformatted(self, rate_figure):
+        table = rate_figure.data[0]
+        assert not table.cells.format
+        for column in table.cells.values[1:]:
+            assert all(len(text) <= 9 for text in column)
+
+    def test_flows_of_nothing_are_left_out(self, rate_figure):
+        """Every node had a fixed position, which went to the wrong node once
+        plotly left out one nothing flows into: with no unmapped reads,
+        "Mapped reads" was drawn at the foot of the plot, half off it."""
+        flow = rate_figure.data[1]
+        assert flow.node.x is None and flow.node.y is None
+        assert all(v > 0 for v in flow.link.value)
+        unmapped = list(flow.node.label).index("Unmapped reads")
+        assert unmapped not in flow.link.target
+
+    def test_the_table_sits_above_the_flow(self, rate_figure):
+        """Side by side, the table's cells wrapped in a narrow figure and its
+        last rows were pushed out of the bottom."""
+        table, flow = rate_figure.data
+        assert table.domain.x == flow.domain.x
+        assert min(table.domain.y) > max(flow.domain.y)
+
+    def test_status_counts_read_like_the_other_tables(self, tmp_path, aligned_bam):
+        summary = write_summary(tmp_path / "s.txt")
+        parser = pycoQC_parse(summary_file=str(summary), bam_file=str(aligned_bam), quiet=True)
+        fig = pycoQC_plot(parser, quiet=True).alignment_reads_status()
+        counts, shares = fig.data[0].cells.values[1:]
+        assert all("," in c for c in counts if len(c.replace(",", "")) > 3)
+        assert all(s.endswith("%") for s in shares)
+        assert fig.data[1].showlegend is False
+
+
 class TestCoverageReferences:
 
     @pytest.fixture
